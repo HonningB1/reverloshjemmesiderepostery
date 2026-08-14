@@ -3,8 +3,10 @@ import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
-const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
-  "00000000-0000-4000-8000-000000000000";
+// This is the real production D1 database bound as `DB` in Cloudflare.
+// Keep these values aligned with the Cloudflare dashboard binding.
+const REVERLO_D1_DATABASE_NAME = "reverlo-db";
+const REVERLO_D1_DATABASE_ID = "5c641108-e06b-47bd-9278-d0a79c59a3ed";
 
 const { d1, r2 } = hostingConfig;
 
@@ -18,8 +20,9 @@ const localBindingConfig = {
     ? [
         {
           binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          database_name: REVERLO_D1_DATABASE_NAME,
+          database_id: REVERLO_D1_DATABASE_ID,
+          migrations_dir: "drizzle",
         },
       ]
     : [],
