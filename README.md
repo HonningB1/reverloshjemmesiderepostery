@@ -40,3 +40,17 @@ This is a static site; it does not require environment variables. Adding the web
 ## Social preview
 
 `public/og.png` is the share preview image. The title, description, Open Graph, X card metadata, and favicon are configured in `app/layout.tsx`. Replace `metadataBase` with your final HTTPS domain before launch.
+
+## Initialize review storage (Cloudflare D1)
+
+The review form sends data to `POST /api/reviews`. Every entry is assigned a database-generated `REV-0001`-style ID and is stored with the `pending` status. There is no public endpoint for listing reviews.
+
+1. In the Cloudflare Pages project, add your existing D1 database as a production binding named `DB`.
+2. Log in locally with `npx wrangler login`.
+3. Apply the included initial schema once (replace the placeholder with the real D1 database name):
+
+```bash
+npx wrangler d1 execute YOUR_D1_DATABASE_NAME --remote --file=drizzle/0000_smart_sway.sql
+```
+
+The SQL creates the `reviews` table and its ID counter. Do not run the initial file again after it has succeeded. Future schema changes should be added as new files in `drizzle/` and applied with the same `wrangler d1 execute` pattern.

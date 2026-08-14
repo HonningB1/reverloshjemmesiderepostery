@@ -4,22 +4,45 @@ import { type FormEvent, useState } from "react";
 
 const platforms = ["Discord", "X", "eBay", "Direct"];
 
-function makeReviewId(sequence: number) {
-  return `REV-${String(sequence).padStart(4, "0")}`;
-}
-
 export default function CreateReviewPage() {
   const [rating, setRating] = useState(0);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
-  const [nextSequence, setNextSequence] = useState(1);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function submitReview(event: FormEvent<HTMLFormElement>) {
+  async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const reviewId = makeReviewId(nextSequence);
-    setSubmittedId(reviewId);
-    setNextSequence((current) => current + 1);
-    event.currentTarget.reset();
-    setRating(0);
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    setSubmittedId(null);
+    setSubmissionError(null);
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: values.get("reviewer"),
+          rating,
+          review: values.get("comment"),
+          productDeal: values.get("deal"),
+          platform: values.get("platform"),
+        }),
+      });
+      const result = (await response.json()) as { reviewId?: string; error?: string };
+      if (!response.ok || !result.reviewId) {
+        throw new Error(result.error ?? "Unable to submit the review.");
+      }
+
+      setSubmittedId(result.reviewId);
+      form.reset();
+      setRating(0);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : "Unable to submit the review.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -55,8 +78,9 @@ export default function CreateReviewPage() {
           <div className="review-panel">
             {submittedId ? <div className="review-success" role="status">
               <span className="check-icon" aria-hidden="true">✓</span>
-              <div><strong>Review received locally</strong><p>Your reference ID is <code>{submittedId}</code>. It has not been published or stored yet.</p></div>
+              <div><strong>Review received for moderation</strong><p>Your reference ID is <code>{submittedId}</code>. It is stored as pending and is not public.</p></div>
             </div> : null}
+            {submissionError ? <p className="review-error" role="alert">{submissionError}</p> : null}
 
             <form className="review-form" onSubmit={submitReview}>
               <div className="form-row two-columns">
@@ -78,7 +102,7 @@ export default function CreateReviewPage() {
               <label>Product or deal<input name="deal" type="text" placeholder="e.g. Starlink Mini x3" required /></label>
               <label>Review or comment<textarea name="comment" placeholder="What went well with the transaction?" rows={5} required /></label>
 
-              <div className="submit-row"><p>By submitting, you confirm this is your genuine experience.</p><button type="submit">Submit review <span aria-hidden="true">→</span></button></div>
+              <div className="submit-row"><p>By submitting, you confirm this is your genuine experience. Reviews remain private until approved.</p><button type="submit" disabled={isSubmitting}>{isSubmitting ? "Submitting..." : "Submit review"} <span aria-hidden="true">→</span></button></div>
             </form>
           </div>
         </section>
