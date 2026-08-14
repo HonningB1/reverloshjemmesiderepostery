@@ -84,7 +84,7 @@ export default function CreateReviewPage() {
 
             <form className="review-form" onSubmit={submitReview}>
               <div className="form-row two-columns">
-                <label>Username or name<input name="reviewer" type="text" autoComplete="name" placeholder="e.g. @buyerhandle" required /></label>
+                <label>Username or name<input name="reviewer" type="text" autoComplete="name" placeholder="Your public username or name" required /></label>
                 <label>Platform<select name="platform" defaultValue="" required><option value="" disabled>Select platform</option>{platforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}</select></label>
               </div>
 
@@ -99,7 +99,7 @@ export default function CreateReviewPage() {
                 </div>
               </fieldset>
 
-              <label>Product or deal<input name="deal" type="text" placeholder="e.g. Starlink Mini x3" required /></label>
+              <label>Product or deal<input name="deal" type="text" placeholder="Describe the product or trade" required /></label>
               <label>Review or comment<textarea name="comment" placeholder="What went well with the transaction?" rows={5} required /></label>
 
               <div className="submit-row"><p>By submitting, you confirm this is your genuine experience. Reviews remain private until approved.</p><button type="submit" disabled={isSubmitting}>{isSubmitting ? "Submitting..." : "Submit review"} <span aria-hidden="true">→</span></button></div>
