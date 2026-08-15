@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { brand } from "../../data/seller";
 import { getPublicReviewLink } from "../../../db/review-links";
 import ReviewForm from "./ReviewForm";
+import { ReverloWordmark } from "../../components/ReverloWordmark";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Submit a review | Reverlo", description: "Submit a private buyer review using your Reverlo one-time review link." };
 
 function Header() {
-  return <header className="site-header"><a className="wordmark" href="/" aria-label="Return to Reverlo"><span className="wordmark-mark">{brand.mark}</span><span>{brand.name}</span></a><a className="header-cta" href="/">View Reverlo <span aria-hidden="true">←</span></a></header>;
+  return <header className="site-header"><a className="wordmark" href="/" aria-label="Return to Reverlo"><ReverloWordmark /></a><a className="header-cta" href="/">View Reverlo <span aria-hidden="true">←</span></a></header>;
 }
 
 export default async function ReviewLinkPage({ params }: { params: Promise<{ token: string }> }) {

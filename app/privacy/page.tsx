@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ReverloWordmark } from "../components/ReverloWordmark";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Reverlo",
@@ -7,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return <main><div className="page-shell policy-shell">
-    <header className="site-header"><a className="wordmark" href="/" aria-label="Reverlo home"><span className="wordmark-mark">RV</span><span>Reverlo</span></a><nav aria-label="Primary navigation"><a href="/#reviews">Reviews</a><a href="/#profiles">Profiles</a><a href="/#verify">Legit check</a></nav><a className="header-cta" href="/">Back to Reverlo <span aria-hidden="true">→</span></a></header>
+    <header className="site-header"><a className="wordmark" href="/" aria-label="Reverlo home"><ReverloWordmark /></a><nav aria-label="Primary navigation"><a href="/#reviews">Reviews</a><a href="/#profiles">Profiles</a><a href="/#verify">Legit check</a></nav><a className="header-cta" href="/">Back to Reverlo <span aria-hidden="true">→</span></a></header>
 
     <article className="policy-content">
       <p className="section-kicker">Legal</p><h1>Privacy Policy.</h1><p className="policy-updated">Last updated: August 2026</p>

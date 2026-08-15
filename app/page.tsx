@@ -1,9 +1,31 @@
+import type { Metadata } from "next";
 import { getPublicSocialProfiles } from "../db/profile";
 import { getPublicReviewData } from "../db/reviews";
 import { brand, type SocialPlatform } from "./data/seller";
 import { PublicReviewList } from "./PublicReviewList";
+import { ReverloWordmark } from "./components/ReverloWordmark";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Reverlo — Verified Trading Reputation",
+  description: "View verified feedback and trading history for Reverlo across eBay and direct transactions.",
+  alternates: { canonical: "https://reverlo.nl/" },
+  openGraph: {
+    title: "Reverlo — Verified Trading Reputation",
+    description: "View verified feedback and trading history for Robert Tacchini across eBay and direct transactions.",
+    url: "https://reverlo.nl/",
+    siteName: "Reverlo",
+    type: "website",
+    images: [{ url: "/reverlo-social-preview.png", width: 1200, height: 630, alt: "Reverlo" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Reverlo — Verified Trading Reputation",
+    description: "View verified feedback and trading history for Robert Tacchini across eBay and direct transactions.",
+    images: ["/reverlo-social-preview.png"],
+  },
+};
 
 function CheckIcon() { return <span className="check-icon" aria-hidden="true">✓</span>; }
 
@@ -23,9 +45,11 @@ export default async function Home() {
     { label: "Average rating", value: reputation.summary.averageRating ? `${reputation.summary.averageRating.toFixed(1)} ★` : "—", detail: "Across all rated feedback" },
   ];
 
-  return <main><div className="page-shell">
-    <header className="site-header"><a className="wordmark" href="#top" aria-label="Reverlo home"><span className="wordmark-mark">{brand.mark}</span><span>{brand.name}</span></a><nav aria-label="Primary navigation"><a href="#reviews">Reviews</a><a href="#profiles">Profiles</a><a href="#verify">Legit check</a></nav><a className="header-cta" href="#verify">Verify a seller <span aria-hidden="true">→</span></a></header>
-    <section className="hero" id="top"><div className="identity-block"><div className="status-line"><span className="pulse-dot" /> {brand.availability}</div><p className="eyebrow">Independent seller verification</p><h1>Reverlo.</h1><p className="hero-copy">A transparent record of approved Reverlo reviews, imported eBay feedback and verified social profiles for safer direct trading.</p><div className="identity-meta"><span>Public reputation record</span><span className="meta-separator">•</span><span>Reviews moderated before publishing</span></div></div><div className="profile-stamp" aria-label="Reverlo verification summary"><span className="stamp-top">REVERLO VERIFIED</span><span className="stamp-initials">{brand.mark}</span><span className="stamp-bottom"><CheckIcon /> Publicly verifiable</span></div></section>
+  const structuredData = { "@context": "https://schema.org", "@type": "WebSite", name: "Reverlo", url: "https://reverlo.nl/" };
+
+  return <main><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} /><div className="page-shell">
+    <header className="site-header"><a className="wordmark" href="#top" aria-label="Reverlo home"><ReverloWordmark /></a><nav aria-label="Primary navigation"><a href="#reviews">Reviews</a><a href="#profiles">Profiles</a><a href="#verify">Legit check</a></nav><a className="header-cta" href="#verify">Verify a seller <span aria-hidden="true">→</span></a></header>
+    <section className="hero" id="top"><div className="identity-block"><div className="status-line"><span className="pulse-dot" /> {brand.availability}</div><p className="eyebrow">Independent seller verification</p><h1>Reverlo.</h1><p className="hero-copy">A transparent record of approved Reverlo reviews, imported eBay feedback and verified social profiles for safer direct trading.</p><div className="identity-meta"><span>Public reputation record</span><span className="meta-separator">•</span><span>Reviews moderated before publishing</span></div></div><div className="profile-stamp" aria-label="Reverlo verification summary"><span className="stamp-top">REVERLO VERIFIED</span><span className="stamp-initials"><img src="/reverlo-icon.png" width="512" height="512" alt="" /></span><span className="stamp-bottom"><CheckIcon /> Publicly verifiable</span></div></section>
     <section className="stats" aria-label="Live reputation statistics">{stats.map((stat, index) => <article className="stat-card" key={stat.label}><span className="stat-index">0{index + 1}</span><strong>{stat.value}</strong><h2>{stat.label}</h2><p>{stat.detail}</p></article>)}</section>
     <section className="content-section profile-section" id="profiles" aria-labelledby="profiles-heading"><div className="section-heading"><div><p className="section-kicker">Verified profiles</p><h2 id="profiles-heading">Official socials</h2></div></div>{socials.length ? <div className="profile-grid">{socials.map((profile, index) => <a href={profile.url} target="_blank" rel="noopener noreferrer" key={profile.id} className="profile-card"><span className={`platform-symbol platform-${index}`}>{socialMark(profile.platform)}</span><span className="profile-card-copy"><strong>{profile.platform}</strong><small>{new URL(profile.url).hostname}</small></span><span className="profile-kind">Official profile <span className="external-arrow" aria-hidden="true">↗</span></span></a>)}</div> : <div className="empty-panel"><span>—</span><p>No official profile links are published yet.</p></div>}</section>
     <section className="content-section vouches-section" id="reviews" aria-labelledby="reviews-heading"><div className="section-heading"><div><p className="section-kicker">Public feedback</p><h2 id="reviews-heading">Reviews &amp; feedback</h2></div></div><PublicReviewList reviews={reputation.approvedReviews} /></section>

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /review/
+Disallow: /createreview
+
+Sitemap: https://reverlo.nl/sitemap.xml

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../", import.meta.url);
@@ -39,12 +39,34 @@ test("admin uses same-origin protected API routes and public branding is Reverlo
   assert.doesNotMatch(admin, /fetch\("https?:\/\//);
   assert.match(layout, /Reverlo/);
   assert.match(home, /Official socials/);
-  assert.doesNotMatch(`${layout}\n${home}`, /Robert Tacchini|Completed deals/i);
+  assert.doesNotMatch(`${layout}\n${home}`, /Completed deals/i);
   assert.doesNotMatch(home, /Only profiles configured by Reverlo|Only reviews approved by Reverlo/);
   assert.match(reviewsRoute, /export async function DELETE/);
   assert.match(reviewsRoute, /UPDATE ebay_feedback SET hidden_at/);
   assert.match(reviewsRoute, /SELECT \* FROM \(/);
   assert.match(ebayRoute, /getEbaySyncStatus\(env\.DB, configured\(\)\)/);
+});
+
+test("homepage SEO and icons use the official Reverlo branding", async () => {
+  const [layout, home, manifest, robots, sitemap, wordmark] = await Promise.all([
+    source("app/layout.tsx"), source("app/page.tsx"), source("public/site.webmanifest"), source("public/robots.txt"), source("public/sitemap.xml"), source("app/components/ReverloWordmark.tsx"),
+  ]);
+  assert.match(home, /Reverlo — Verified Trading Reputation/);
+  assert.match(home, /View verified feedback and trading history for Reverlo across eBay and direct transactions\./);
+  assert.match(home, /https:\/\/reverlo\.nl\//);
+  assert.match(home, /siteName: "Reverlo"/);
+  assert.match(home, /reverlo-social-preview\.png/);
+  assert.match(home, /"@type": "WebSite"/);
+  assert.match(layout, /favicon-16\.png/);
+  assert.match(layout, /favicon-32\.png/);
+  assert.match(layout, /apple-touch-icon\.png/);
+  assert.match(layout, /apple:/);
+  assert.match(manifest, /"name": "Reverlo"/);
+  assert.match(robots, /https:\/\/reverlo\.nl\/sitemap\.xml/);
+  assert.match(sitemap, /https:\/\/reverlo\.nl\/privacy/);
+  assert.match(wordmark, /reverlo-wordmark\.png/);
+  await Promise.all(["public/reverlo-logo.png", "public/reverlo-wordmark.png", "public/reverlo-icon.png", "public/favicon-16.png", "public/favicon-32.png", "public/apple-touch-icon.png", "public/reverlo-social-preview.png"].map(async (path) => assert.ok((await stat(new URL(path, root))).size > 0)));
+  assert.doesNotMatch(`${layout}\n${home}\n${manifest}`, /ResellTrack|Din reselling oversigt|Revolut Business/i);
 });
 
 test("eBay seller and buyer feedback sync is server-side, rated, paginated, and additive", async () => {

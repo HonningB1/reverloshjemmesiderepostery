@@ -3,11 +3,19 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://reverlo.nl"),
-  title: "Reverlo — Independent Reputation Profile",
-  description: "Verify seller reputation through moderated buyer reviews and official social profiles.",
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
-  openGraph: { title: "Reverlo — Independent Reputation Profile", description: "Moderated buyer references and official social profiles.", type: "website", images: [{ url: "/og.png", width: 1792, height: 1024, alt: "Reverlo reputation profile" }] },
-  twitter: { card: "summary_large_image", title: "Reverlo — Independent Reputation Profile", description: "Moderated buyer references and official social profiles.", images: ["/og.png"] },
+  applicationName: "Reverlo",
+  manifest: "/site.webmanifest",
+  title: "Reverlo — Verified Trading Reputation",
+  description: "View verified feedback and trading history for Reverlo across eBay and direct transactions.",
+  icons: {
+    icon: [
+      { url: "/favicon-16.png", type: "image/png", sizes: "16x16" },
+      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/reverlo-icon.png", type: "image/png", sizes: "512x512" },
+    ],
+    shortcut: ["/favicon-32.png"],
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -1,0 +1,16 @@
+{
+  "name": "Reverlo",
+  "short_name": "Reverlo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1010",
+  "theme_color": "#0e1010",
+  "icons": [
+    {
+      "src": "/reverlo-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
