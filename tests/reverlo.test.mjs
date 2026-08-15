@@ -40,16 +40,27 @@ test("admin uses same-origin protected API routes and public branding is Reverlo
   assert.match(ebayRoute, /getEbaySyncStatus\(env\.DB, configured\(\)\)/);
 });
 
-test("eBay feedback sync is server-side, seller-only, paginated, and additive", async () => {
-  const [ebay, migration, worker, vite] = await Promise.all([
-    source("lib/ebay-feedback.ts"), source("drizzle/0002_ebay_feedback.sql"), source("worker/index.ts"), source("vite.config.ts"),
+test("eBay seller and buyer feedback sync is server-side, paginated, and additive", async () => {
+  const [ebay, migration, roleMigration, worker, vite, publicList, publicReviews, admin] = await Promise.all([
+    source("lib/ebay-feedback.ts"), source("drizzle/0002_ebay_feedback.sql"), source("drizzle/0003_ebay_feedback_role.sql"), source("worker/index.ts"), source("vite.config.ts"), source("app/PublicReviewList.tsx"), source("db/reviews.ts"), source("app/admin/page.tsx"),
   ]);
   assert.match(ebay, /FeedbackReceivedAsSeller/);
-  assert.match(ebay, /entry\.role\.toLowerCase\(\) !== "seller"/);
+  assert.match(ebay, /FeedbackReceivedAsBuyer/);
+  assert.match(ebay, /for \(const role of \["SELLER", "BUYER"\] as const\)/);
+  assert.match(ebay, /entry\.role\.toLowerCase\(\) !== role\.toLowerCase\(\)/);
   assert.match(ebay, /for \(let page = 2; page <= pages/);
   assert.match(ebay, /ON CONFLICT\(ebay_feedback_id\)/);
   assert.match(migration, /CREATE UNIQUE INDEX `ebay_feedback_source_id_unique`/);
   assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM/i);
+  assert.match(roleMigration, /ALTER TABLE `ebay_feedback` ADD `feedback_role`/);
+  assert.match(roleMigration, /DEFAULT 'SELLER'/);
+  assert.doesNotMatch(roleMigration, /DROP TABLE|DELETE FROM/i);
+  assert.match(publicList, /eBay · \$\{roleLabel\} ·/);
+  assert.match(publicList, /EBAY_SELLER/);
+  assert.match(publicReviews, /ebaySellerCount/);
+  assert.match(publicReviews, /ebayBuyerCount/);
+  assert.match(admin, /Seller feedback:/);
+  assert.match(admin, /Buyer feedback:/);
   assert.match(vite, /crons: \["0 \*\/6 \* \* \*"\]/);
   assert.match(worker, /scheduled\(/);
   assert.doesNotMatch(ebay, /console\.log/);

@@ -17,11 +17,12 @@ Reviews are submitted exclusively through a secure, one-time link generated in `
 
 The existing production database binding must remain `DB → reverlo-db`.
 
-The original schema was initialized from SQL files. Apply only the migrations that are newer than your live database; both are additive and do not delete or reset data:
+The original schema was initialized from SQL files. Apply only the migrations that are newer than your live database; all are additive and do not delete or reset data:
 
 ```powershell
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0001_mysterious_cammi.sql
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0002_ebay_feedback.sql
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0003_ebay_feedback_role.sql
 ```
 
 For a local D1 verification database:
@@ -29,13 +30,14 @@ For a local D1 verification database:
 ```powershell
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0001_mysterious_cammi.sql
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0002_ebay_feedback.sql
+npx wrangler d1 execute reverlo-db --local --file=drizzle/0003_ebay_feedback_role.sql
 ```
 
-`drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. It does not delete existing reviews, review links, or social profiles.
+`drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. `drizzle/0003_ebay_feedback_role.sql` adds a seller/buyer role and defaults the existing imported feedback to `SELLER`. Neither migration deletes existing reviews, review links, or social profiles. If `0002` has already run in production, do not rerun it; apply only `0003`.
 
-## eBay seller-feedback sync
+## eBay seller- and buyer-feedback sync
 
-The Worker calls eBay's Trading API `GetFeedback` server-side using `FeedbackReceivedAsSeller`; browser code receives only cached D1 data. Configure these Worker secrets (never put them in source or frontend variables):
+The Worker calls eBay's Trading API `GetFeedback` server-side using `FeedbackReceivedAsSeller` and `FeedbackReceivedAsBuyer`; browser code receives only cached D1 data. Configure these Worker secrets (never put them in source or frontend variables):
 
 ```powershell
 npx wrangler secret put EBAY_CLIENT_ID --name YOUR_WORKER_NAME

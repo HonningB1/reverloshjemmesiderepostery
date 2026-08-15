@@ -43,6 +43,7 @@ export const ebayFeedback = sqliteTable(
     receivedAt: text("received_at").notNull(),
     hiddenAt: text("hidden_at"),
     source: text("source", { enum: ["EBAY"] }).notNull().default("EBAY"),
+    feedbackRole: text("feedback_role", { enum: ["SELLER", "BUYER"] }).notNull().default("SELLER"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
