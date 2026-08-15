@@ -20,7 +20,7 @@ export default async function Home() {
     { label: "Total feedback", value: String(reputation.summary.approvedCount), detail: "All Reverlo and eBay feedback" },
     { label: "Sales feedback", value: String(reputation.summary.saleCount), detail: "Seller feedback and Reverlo sales" },
     { label: "Purchase feedback", value: String(reputation.summary.purchaseCount), detail: "Buyer feedback and Reverlo purchases" },
-    { label: "Average rating", value: reputation.summary.averageRating ? `${reputation.summary.averageRating.toFixed(1)} / 5` : "—", detail: "All mapped 5-star feedback" },
+    { label: "Average rating", value: reputation.summary.averageRating ? `${reputation.summary.averageRating.toFixed(1)} ★` : "—", detail: "Across all rated feedback" },
   ];
 
   return <main><div className="page-shell">
