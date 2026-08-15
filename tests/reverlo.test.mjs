@@ -64,8 +64,8 @@ test("homepage SEO and icons use the official Reverlo branding", async () => {
   assert.match(manifest, /"name": "Reverlo"/);
   assert.match(robots, /https:\/\/reverlo\.nl\/sitemap\.xml/);
   assert.match(sitemap, /https:\/\/reverlo\.nl\/privacy/);
-  assert.match(wordmark, /reverlo-wordmark\.png/);
-  await Promise.all(["public/reverlo-logo.png", "public/reverlo-wordmark.png", "public/reverlo-icon.png", "public/favicon-16.png", "public/favicon-32.png", "public/apple-touch-icon.png", "public/reverlo-social-preview.png"].map(async (path) => assert.ok((await stat(new URL(path, root))).size > 0)));
+  assert.match(wordmark, /reverlo-wordmark-transparent\.png/);
+  await Promise.all(["public/reverlo-logo.png", "public/reverlo-wordmark.png", "public/reverlo-wordmark-transparent.png", "public/reverlo-icon.png", "public/favicon-16.png", "public/favicon-32.png", "public/apple-touch-icon.png", "public/reverlo-social-preview.png"].map(async (path) => assert.ok((await stat(new URL(path, root))).size > 0)));
   assert.doesNotMatch(`${layout}\n${home}\n${manifest}`, /ResellTrack|Din reselling oversigt|Revolut Business/i);
 });
 

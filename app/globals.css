@@ -8,7 +8,7 @@ a { color: inherit; text-decoration: none; }
 button, input, textarea, select { font: inherit; }
 .page-shell { width: min(1180px, calc(100% - 48px)); margin: 0 auto; }
 .site-header { height: 86px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line-soft); }
-.wordmark { display: flex; align-items: center; gap: 11px; font-size: 13px; font-weight: 700; letter-spacing: .03em; }.reverlo-wordmark { display: block; width: 126px; height: auto; border-radius: 3px; }
+.wordmark { display: flex; align-items: center; gap: 11px; font-size: 13px; font-weight: 700; letter-spacing: .03em; }.reverlo-wordmark { display: block; width: 126px; height: auto; }
 .wordmark i { color: var(--muted); font-style: normal; font-weight: 400; }
 nav { display: flex; align-items: center; gap: 28px; color: var(--muted); font-size: 13px; }
 nav a, .header-cta, footer a { transition: color .18s ease; } nav a:hover, footer a:hover { color: var(--text); }

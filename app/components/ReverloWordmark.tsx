@@ -1,3 +1,3 @@
 export function ReverloWordmark() {
-  return <img className="reverlo-wordmark" src="/reverlo-wordmark.png" width="756" height="210" alt="Reverlo" />;
+  return <img className="reverlo-wordmark" src="/reverlo-wordmark-transparent.png" width="756" height="210" alt="Reverlo" />;
 }
