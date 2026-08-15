@@ -32,7 +32,7 @@ export default function AdminPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/admin/api/reviews", { cache: "no-store" });
+      const response = await fetch("/api/admin/reviews", { cache: "no-store", credentials: "same-origin" });
       const result = (await response.json()) as { reviews?: AdminReview[]; error?: string };
       if (!response.ok || !result.reviews) throw new Error(result.error ?? "Unable to load reviews.");
       setReviews(result.reviews);
@@ -55,8 +55,9 @@ export default function AdminPage() {
     setUpdatingId(reviewId);
     setError(null);
     try {
-      const response = await fetch("/admin/api/reviews", {
+      const response = await fetch("/api/admin/reviews", {
         method: "PATCH",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reviewId, action }),
       });

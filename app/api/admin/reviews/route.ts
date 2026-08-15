@@ -22,8 +22,8 @@ function unavailable() {
   return Response.json({ error: "Review storage is not initialized yet." }, { status: 503 });
 }
 
-// This route lives under /admin so the existing Cloudflare Access policy can protect
-// the page and its data API together. No application-level login is introduced here.
+// Cloudflare Access must protect /api/admin/* with the same policy as /admin.
+// This remains an edge-protected API; it deliberately has no separate login layer.
 export async function GET() {
   if (!env.DB) return unavailable();
 
