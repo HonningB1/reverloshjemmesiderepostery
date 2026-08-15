@@ -22,12 +22,13 @@ export async function GET() {
     const result = await env.DB.prepare(
       `SELECT * FROM (
          SELECT review_id AS reviewId, username, rating, review, product_deal AS productDeal, platform, status,
-              created_at AS createdAt, 'REVERLO' AS source, NULL AS feedbackType, NULL AS feedbackRole, NULL AS hiddenAt
+              created_at AS createdAt, 'REVERLO' AS source, deal_type AS dealType, NULL AS feedbackType, NULL AS feedbackRole, NULL AS hiddenAt
          FROM reviews
          UNION ALL
-         SELECT ebay_feedback_id AS reviewId, username, NULL AS rating, comment AS review, item_title AS productDeal,
+         SELECT ebay_feedback_id AS reviewId, username,
+              CASE lower(trim(feedback_type)) WHEN 'positive' THEN 5 WHEN 'neutral' THEN 3 WHEN 'negative' THEN 1 ELSE NULL END AS rating, comment AS review, item_title AS productDeal,
               'eBay' AS platform, CASE WHEN hidden_at IS NULL THEN 'approved' ELSE 'rejected' END AS status,
-              received_at AS createdAt, 'EBAY' AS source, feedback_type AS feedbackType, feedback_role AS feedbackRole, hidden_at AS hiddenAt
+              received_at AS createdAt, 'EBAY' AS source, CASE WHEN feedback_role = 'BUYER' THEN 'PURCHASE' ELSE 'SALE' END AS dealType, feedback_type AS feedbackType, feedback_role AS feedbackRole, hidden_at AS hiddenAt
          FROM ebay_feedback
        ) AS admin_reviews
        ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, createdAt DESC`,

@@ -23,6 +23,7 @@ The original schema was initialized from SQL files. Apply only the migrations th
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0001_mysterious_cammi.sql
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0002_ebay_feedback.sql
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0003_ebay_feedback_role.sql
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0004_review_deal_types.sql
 ```
 
 For a local D1 verification database:
@@ -31,9 +32,10 @@ For a local D1 verification database:
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0001_mysterious_cammi.sql
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0002_ebay_feedback.sql
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0003_ebay_feedback_role.sql
+npx wrangler d1 execute reverlo-db --local --file=drizzle/0004_review_deal_types.sql
 ```
 
-`drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. `drizzle/0003_ebay_feedback_role.sql` adds a seller/buyer role and defaults the existing imported feedback to `SELLER`. Neither migration deletes existing reviews, review links, or social profiles. If `0002` has already run in production, do not rerun it; apply only `0003`.
+`drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. `drizzle/0003_ebay_feedback_role.sql` adds a seller/buyer role and defaults the existing imported feedback to `SELLER`. `drizzle/0004_review_deal_types.sql` adds the nullable Sale/Purchase type to review links and Reverlo reviews, preserving existing reviews as unclassified. None of these migrations delete existing reviews, review links, or social profiles. If `0002` and `0003` have already run in production, apply only `0004`.
 
 ## eBay seller- and buyer-feedback sync
 

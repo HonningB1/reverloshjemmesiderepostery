@@ -6,6 +6,7 @@ type AdminReviewLink = {
   token: string;
   productDeal: string;
   defaultPlatform: string | null;
+  dealType: "SALE" | "PURCHASE" | null;
   createdAt: string;
   usedAt: string | null;
 };
@@ -27,7 +28,7 @@ function unavailable() {
 
 function databaseError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return message.includes("no such table") || message.includes("review_links");
+  return message.includes("no such table") || message.includes("review_links") || message.includes("deal_type");
 }
 
 // Cloudflare Access protects this /api/admin/* route at the edge.
@@ -37,7 +38,7 @@ export async function GET() {
   try {
     const result = await env.DB.prepare(
       `SELECT id, token, product_deal AS productDeal, default_platform AS defaultPlatform,
-              created_at AS createdAt, used_at AS usedAt
+              deal_type AS dealType, created_at AS createdAt, used_at AS usedAt
        FROM review_links ORDER BY id DESC`,
     ).all<AdminReviewLink>();
 
@@ -52,21 +53,22 @@ export async function POST(request: Request) {
   if (!env.DB) return unavailable();
 
   try {
-    const payload = (await request.json()) as { productDeal?: unknown; defaultPlatform?: unknown };
+    const payload = (await request.json()) as { productDeal?: unknown; defaultPlatform?: unknown; dealType?: unknown };
     const productDeal = cleanText(payload.productDeal, 160);
     const candidatePlatform = cleanText(payload.defaultPlatform, 32);
     const defaultPlatform = candidatePlatform || null;
+    const dealType = payload.dealType === "SALE" || payload.dealType === "PURCHASE" ? payload.dealType : null;
 
-    if (!productDeal || (defaultPlatform && !reviewPlatforms.includes(defaultPlatform as (typeof reviewPlatforms)[number]))) {
-      return Response.json({ error: "Enter a product/deal and a valid optional platform." }, { status: 400 });
+    if (!productDeal || !dealType || (defaultPlatform && !reviewPlatforms.includes(defaultPlatform as (typeof reviewPlatforms)[number]))) {
+      return Response.json({ error: "Enter a product/deal, deal type, and valid optional platform." }, { status: 400 });
     }
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const token = makeSecureToken();
       try {
         const inserted = await env.DB
-          .prepare("INSERT INTO review_links (token, product_deal, default_platform) VALUES (?, ?, ?) RETURNING id, token, product_deal AS productDeal, default_platform AS defaultPlatform, created_at AS createdAt, used_at AS usedAt")
-          .bind(token, productDeal, defaultPlatform)
+          .prepare("INSERT INTO review_links (token, product_deal, default_platform, deal_type) VALUES (?, ?, ?, ?) RETURNING id, token, product_deal AS productDeal, default_platform AS defaultPlatform, deal_type AS dealType, created_at AS createdAt, used_at AS usedAt")
+          .bind(token, productDeal, defaultPlatform, dealType)
           .first<AdminReviewLink>();
 
         if (inserted) return Response.json({ link: { ...inserted, status: "ACTIVE", path: `/review/${inserted.token}` } }, { status: 201 });

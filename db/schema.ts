@@ -18,6 +18,8 @@ export const reviews = sqliteTable(
     review: text("review").notNull(),
     productDeal: text("product_deal").notNull(),
     platform: text("platform", { enum: ["Discord", "X", "eBay", "Direct"] }).notNull(),
+    // Null preserves existing reviews whose transaction direction is unknown.
+    dealType: text("deal_type", { enum: ["SALE", "PURCHASE"] }),
     status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
     source: text("source", { enum: ["REVERLO"] }).notNull().default("REVERLO"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -28,8 +30,9 @@ export const reviews = sqliteTable(
   ],
 );
 
-// Imported eBay feedback deliberately lives separately from reviews: eBay has
-// Positive/Neutral/Negative feedback rather than Reverlo's 1–5 rating scale.
+// Imported eBay feedback deliberately lives separately from reviews. Its
+// Positive/Neutral/Negative type is retained and mapped deterministically to
+// 5/3/1 stars only when Reverlo presents or aggregates it.
 export const ebayFeedback = sqliteTable(
   "ebay_feedback",
   {
@@ -66,6 +69,8 @@ export const reviewLinks = sqliteTable(
     token: text("token").notNull(),
     productDeal: text("product_deal").notNull(),
     defaultPlatform: text("default_platform", { enum: ["Discord", "X", "eBay", "Direct"] }),
+    // New links always receive a type; null is retained for pre-existing links.
+    dealType: text("deal_type", { enum: ["SALE", "PURCHASE"] }),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     usedAt: text("used_at"),
   },

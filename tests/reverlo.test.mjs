@@ -5,11 +5,13 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
 
-test("review links are server-controlled and one-time", async () => {
-  const [submitRoute, legacyRoute, migration] = await Promise.all([
+test("review links are server-controlled, one-time, and preserve their deal type", async () => {
+  const [submitRoute, legacyRoute, migration, dealTypeMigration, linksRoute] = await Promise.all([
     source("app/api/review/[token]/route.ts"),
     source("app/api/reviews/route.ts"),
     source("drizzle/0001_mysterious_cammi.sql"),
+    source("drizzle/0004_review_deal_types.sql"),
+    source("app/api/admin/review-links/route.ts"),
   ]);
 
   assert.match(submitRoute, /env\.DB\.batch/);
@@ -19,6 +21,11 @@ test("review links are server-controlled and one-time", async () => {
   assert.match(migration, /CREATE TABLE `review_links`/);
   assert.match(migration, /CREATE TABLE `social_profiles`/);
   assert.doesNotMatch(migration, /DROP TABLE/i);
+  assert.match(dealTypeMigration, /ALTER TABLE `review_links` ADD `deal_type`/);
+  assert.match(dealTypeMigration, /ALTER TABLE `reviews` ADD `deal_type`/);
+  assert.doesNotMatch(dealTypeMigration, /DROP TABLE|DELETE FROM/i);
+  assert.match(linksRoute, /payload\.dealType === "SALE" \|\| payload\.dealType === "PURCHASE"/);
+  assert.match(submitRoute, /review_links\.deal_type/);
 });
 
 test("admin uses same-origin protected API routes and public branding is Reverlo", async () => {
@@ -40,7 +47,7 @@ test("admin uses same-origin protected API routes and public branding is Reverlo
   assert.match(ebayRoute, /getEbaySyncStatus\(env\.DB, configured\(\)\)/);
 });
 
-test("eBay seller and buyer feedback sync is server-side, paginated, and additive", async () => {
+test("eBay seller and buyer feedback sync is server-side, rated, paginated, and additive", async () => {
   const [ebay, migration, roleMigration, worker, vite, publicList, publicReviews, admin] = await Promise.all([
     source("lib/ebay-feedback.ts"), source("drizzle/0002_ebay_feedback.sql"), source("drizzle/0003_ebay_feedback_role.sql"), source("worker/index.ts"), source("vite.config.ts"), source("app/PublicReviewList.tsx"), source("db/reviews.ts"), source("app/admin/page.tsx"),
   ]);
@@ -55,10 +62,16 @@ test("eBay seller and buyer feedback sync is server-side, paginated, and additiv
   assert.match(roleMigration, /ALTER TABLE `ebay_feedback` ADD `feedback_role`/);
   assert.match(roleMigration, /DEFAULT 'SELLER'/);
   assert.doesNotMatch(roleMigration, /DROP TABLE|DELETE FROM/i);
-  assert.match(publicList, /eBay · \$\{roleLabel\} ·/);
-  assert.match(publicList, /EBAY_SELLER/);
-  assert.match(publicReviews, /ebaySellerCount/);
-  assert.match(publicReviews, /ebayBuyerCount/);
+  assert.match(publicList, /label: "Sales"/);
+  assert.match(publicList, /label: "Purchases"/);
+  assert.doesNotMatch(publicList, /label: "Reverlo"|label: "eBay Seller"|label: "eBay Buyer"/);
+  assert.match(publicList, /review\.source === "EBAY"/);
+  assert.match(publicList, /transactionType\(review\) === "SALE"/);
+  assert.match(publicReviews, /when 'positive' then 5/);
+  assert.match(publicReviews, /when 'neutral' then 3/);
+  assert.match(publicReviews, /when 'negative' then 1/);
+  assert.match(publicReviews, /ratingTotal/);
+  assert.match(publicReviews, /ratingCount/);
   assert.match(admin, /Seller feedback:/);
   assert.match(admin, /Buyer feedback:/);
   assert.match(vite, /crons: \["0 \*\/6 \* \* \*"\]/);

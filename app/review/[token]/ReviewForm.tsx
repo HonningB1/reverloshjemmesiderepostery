@@ -3,9 +3,9 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { reviewPlatforms, type ReviewPlatform } from "../../data/seller";
 
-type Props = { token: string; productDeal: string; defaultPlatform: ReviewPlatform | null };
+type Props = { token: string; productDeal: string; defaultPlatform: ReviewPlatform | null; dealType: "SALE" | "PURCHASE" | null };
 
-export default function ReviewForm({ token, productDeal, defaultPlatform }: Props) {
+export default function ReviewForm({ token, productDeal, defaultPlatform, dealType }: Props) {
   const [rating, setRating] = useState(0);
   const [platform, setPlatform] = useState<ReviewPlatform | "">(defaultPlatform ?? "");
   const [isOpen, setIsOpen] = useState(false);
@@ -79,7 +79,7 @@ export default function ReviewForm({ token, productDeal, defaultPlatform }: Prop
   }
 
   return <section className="review-layout" aria-labelledby="review-form-heading">
-    <aside className="review-sidebar"><span className="review-step">01</span><h2 id="review-form-heading">Your deal reference</h2><p>This personal link is valid for one genuine completed transaction. Do not include private contact, payment, delivery, or address information.</p><div className="review-security-note"><span className="check-icon" aria-hidden="true">✓</span><span>The product or deal is fixed by the secure review link and cannot be changed.</span></div></aside>
+    <aside className="review-sidebar"><span className="review-step">01</span><h2 id="review-form-heading">Your deal reference</h2><p>This personal link is valid for one genuine completed transaction. Do not include private contact, payment, delivery, or address information.</p><div className="review-security-note"><span className="check-icon" aria-hidden="true">✓</span><span>The product, deal type{dealType ? ` (${dealType === "SALE" ? "sale" : "purchase"})` : ""}, and review link are fixed by Reverlo and cannot be changed.</span></div></aside>
     <div className="review-panel">
       {submittedId ? <div className="review-success" role="status"><span className="check-icon" aria-hidden="true">✓</span><div><strong>Review received for moderation</strong><p>Your reference ID is <code>{submittedId}</code>. It is stored as pending and is not public.</p></div></div> : null}
       {submissionError ? <p className="review-error" role="alert">{submissionError}</p> : null}

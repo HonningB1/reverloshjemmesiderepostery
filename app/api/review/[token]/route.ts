@@ -18,7 +18,7 @@ function isToken(value: string) {
 
 function storageError(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  return message.includes("no such table") || message.includes("review_links") || message.includes("review_counters");
+  return message.includes("no such table") || message.includes("review_links") || message.includes("review_counters") || message.includes("deal_type");
 }
 
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
@@ -46,8 +46,8 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       ).bind(token),
       // Product/deal and link ownership are selected from D1, never supplied by the browser.
       env.DB.prepare(
-        `INSERT INTO reviews (review_id, submission_token, review_link_id, username, rating, review, product_deal, platform, status)
-         SELECT 'REV-' || printf('%04d', review_counters.current_value), ?, review_links.id, ?, ?, ?, review_links.product_deal, ?, 'pending'
+        `INSERT INTO reviews (review_id, submission_token, review_link_id, username, rating, review, product_deal, platform, deal_type, status)
+         SELECT 'REV-' || printf('%04d', review_counters.current_value), ?, review_links.id, ?, ?, ?, review_links.product_deal, ?, review_links.deal_type, 'pending'
          FROM review_counters CROSS JOIN review_links
          WHERE review_counters.name = 'reviews' AND review_links.token = ? AND review_links.used_at IS NULL`,
       ).bind(submissionToken, username, rating, review, platform, token),
