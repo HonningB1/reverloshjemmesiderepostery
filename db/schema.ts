@@ -19,6 +19,7 @@ export const reviews = sqliteTable(
     productDeal: text("product_deal").notNull(),
     platform: text("platform", { enum: ["Discord", "X", "eBay", "Direct"] }).notNull(),
     status: text("status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
+    source: text("source", { enum: ["REVERLO"] }).notNull().default("REVERLO"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
@@ -26,6 +27,36 @@ export const reviews = sqliteTable(
     uniqueIndex("reviews_submission_token_unique").on(table.submissionToken),
   ],
 );
+
+// Imported eBay feedback deliberately lives separately from reviews: eBay has
+// Positive/Neutral/Negative feedback rather than Reverlo's 1–5 rating scale.
+export const ebayFeedback = sqliteTable(
+  "ebay_feedback",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    ebayFeedbackId: text("ebay_feedback_id").notNull(),
+    username: text("username").notNull(),
+    comment: text("comment").notNull().default(""),
+    feedbackType: text("feedback_type").notNull(),
+    itemId: text("item_id"),
+    itemTitle: text("item_title"),
+    receivedAt: text("received_at").notNull(),
+    hiddenAt: text("hidden_at"),
+    source: text("source", { enum: ["EBAY"] }).notNull().default("EBAY"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [uniqueIndex("ebay_feedback_source_id_unique").on(table.ebayFeedbackId)],
+);
+
+export const ebaySyncState = sqliteTable("ebay_sync_state", {
+  id: integer("id").primaryKey(),
+  lastSyncAt: text("last_sync_at"),
+  lastSuccessAt: text("last_success_at"),
+  importedCount: integer("imported_count").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
 
 export const reviewLinks = sqliteTable(
   "review_links",

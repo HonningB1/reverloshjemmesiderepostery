@@ -17,19 +17,33 @@ Reviews are submitted exclusively through a secure, one-time link generated in `
 
 The existing production database binding must remain `DB → reverlo-db`.
 
-The original schema was initialized from SQL files, so apply this new migration once after the original schema has already been applied:
+The original schema was initialized from SQL files. Apply only the migrations that are newer than your live database; both are additive and do not delete or reset data:
 
 ```powershell
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0001_mysterious_cammi.sql
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0002_ebay_feedback.sql
 ```
 
 For a local D1 verification database:
 
 ```powershell
 npx wrangler d1 execute reverlo-db --local --file=drizzle/0001_mysterious_cammi.sql
+npx wrangler d1 execute reverlo-db --local --file=drizzle/0002_ebay_feedback.sql
 ```
 
-The new `drizzle/0001_mysterious_cammi.sql` migration adds `review_links`, `social_profiles`, and a non-destructive `review_link_id` column on `reviews`. It does not delete existing reviews.
+`drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. It does not delete existing reviews, review links, or social profiles.
+
+## eBay seller-feedback sync
+
+The Worker calls eBay's Trading API `GetFeedback` server-side using `FeedbackReceivedAsSeller`; browser code receives only cached D1 data. Configure these Worker secrets (never put them in source or frontend variables):
+
+```powershell
+npx wrangler secret put EBAY_CLIENT_ID --name YOUR_WORKER_NAME
+npx wrangler secret put EBAY_CLIENT_SECRET --name YOUR_WORKER_NAME
+npx wrangler secret put EBAY_REFRESH_TOKEN --name YOUR_WORKER_NAME
+```
+
+Also configure non-secret Worker variables in the Cloudflare dashboard (or your deployment configuration): `EBAY_ENVIRONMENT=production`, `EBAY_SITE_ID=0` (or your eBay marketplace site ID), and optionally `EBAY_COMPATIBILITY_LEVEL=1423`. The configured cron trigger runs at minute 0 every sixth hour in UTC. The `/api/admin/ebay` endpoint is protected by the existing `/api/admin/*` Cloudflare Access policy.
 
 ## Cloudflare Access
 
