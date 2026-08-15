@@ -8,6 +8,13 @@
       "when": 1786736274902,
       "tag": "0000_smart_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786786901627,
+      "tag": "0001_mysterious_cammi",
+      "breakpoints": true
     }
   ]
 }

@@ -1,16 +1,11 @@
-// Identity details are maintained separately from the D1-backed reputation data.
-export const seller = {
-  name: "Robert Tacchini",
-  initials: "RT",
-  location: "Denmark",
-  availability: "Active seller",
-  since: "2022",
+export const brand = {
+  name: "Reverlo",
+  mark: "RV",
+  availability: "Active reputation profile",
 } as const;
 
-// Add official profiles only when their public URLs are ready to be verified.
-export const profiles: ReadonlyArray<{
-  platform: string;
-  handle: string;
-  url: string;
-  kind: string;
-}> = [];
+export const socialPlatforms = ["eBay", "Discord", "Instagram", "X/Twitter", "Facebook", "TikTok", "YouTube", "Website"] as const;
+export type SocialPlatform = (typeof socialPlatforms)[number];
+
+export const reviewPlatforms = ["Discord", "X", "eBay", "Direct"] as const;
+export type ReviewPlatform = (typeof reviewPlatforms)[number];

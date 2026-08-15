@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from ".";
 import { reviews } from "./schema";
+import type { ReviewPlatform } from "../app/data/seller";
 
 export type PublicReview = {
   reviewId: string;
@@ -8,7 +9,7 @@ export type PublicReview = {
   rating: number;
   review: string;
   productDeal: string;
-  platform: "Discord" | "X" | "eBay" | "Direct";
+  platform: ReviewPlatform;
   createdAt: string;
 };
 
