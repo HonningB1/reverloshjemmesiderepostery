@@ -9,6 +9,10 @@ function databaseError(error: unknown) {
 }
 
 function unavailable() { return Response.json({ error: "Review storage is not initialized yet." }, { status: 503 }); }
+function safeErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return message.replace(/Bearer\s+\S+|refresh_token[^\s&]*/gi, "[redacted]").slice(0, 500);
+}
 
 // Cloudflare Access must protect /api/admin/* with the same policy as /admin.
 // It deliberately has no second, application-level login system.
@@ -16,18 +20,21 @@ export async function GET() {
   if (!env.DB) return unavailable();
   try {
     const result = await env.DB.prepare(
-      `SELECT review_id AS reviewId, username, rating, review, product_deal AS productDeal, platform, status,
+      `SELECT * FROM (
+         SELECT review_id AS reviewId, username, rating, review, product_deal AS productDeal, platform, status,
               created_at AS createdAt, 'REVERLO' AS source, NULL AS feedbackType, NULL AS hiddenAt
-       FROM reviews
-       UNION ALL
-       SELECT ebay_feedback_id AS reviewId, username, NULL AS rating, comment AS review, item_title AS productDeal,
+         FROM reviews
+         UNION ALL
+         SELECT ebay_feedback_id AS reviewId, username, NULL AS rating, comment AS review, item_title AS productDeal,
               'eBay' AS platform, CASE WHEN hidden_at IS NULL THEN 'approved' ELSE 'rejected' END AS status,
               received_at AS createdAt, 'EBAY' AS source, feedback_type AS feedbackType, hidden_at AS hiddenAt
-       FROM ebay_feedback
+         FROM ebay_feedback
+       ) AS admin_reviews
        ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, createdAt DESC`,
     ).all();
     return Response.json({ reviews: result.results });
   } catch (error) {
+    console.error("Reverlo admin reviews list failed", { message: safeErrorMessage(error) });
     if (databaseError(error)) return unavailable();
     return Response.json({ error: "Unable to load reviews." }, { status: 500 });
   }
@@ -44,6 +51,7 @@ export async function PATCH(request: Request) {
     if (result.meta.changes !== 1) return Response.json({ error: "This review is no longer pending." }, { status: 409 });
     return Response.json({ reviewId, status });
   } catch (error) {
+    console.error("Reverlo admin review update failed", { message: safeErrorMessage(error) });
     if (databaseError(error)) return unavailable();
     return Response.json({ error: "Unable to update the review." }, { status: 500 });
   }
@@ -66,6 +74,7 @@ export async function DELETE(request: Request) {
     if (result.meta.changes !== 1) return Response.json({ error: "eBay feedback was not found or is already hidden." }, { status: 404 });
     return Response.json({ reviewId, hidden: true });
   } catch (error) {
+    console.error("Reverlo admin review removal failed", { message: safeErrorMessage(error) });
     if (databaseError(error)) return unavailable();
     return Response.json({ error: "Unable to remove the review." }, { status: 500 });
   }

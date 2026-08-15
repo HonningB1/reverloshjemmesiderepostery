@@ -22,8 +22,8 @@ test("review links are server-controlled and one-time", async () => {
 });
 
 test("admin uses same-origin protected API routes and public branding is Reverlo", async () => {
-  const [admin, layout, home, reviewsRoute] = await Promise.all([
-    source("app/admin/page.tsx"), source("app/layout.tsx"), source("app/page.tsx"), source("app/api/admin/reviews/route.ts"),
+  const [admin, layout, home, reviewsRoute, ebayRoute] = await Promise.all([
+    source("app/admin/page.tsx"), source("app/layout.tsx"), source("app/page.tsx"), source("app/api/admin/reviews/route.ts"), source("app/api/admin/ebay/route.ts"),
   ]);
 
   assert.match(admin, /"\/api\/admin\/review-links"/);
@@ -36,6 +36,8 @@ test("admin uses same-origin protected API routes and public branding is Reverlo
   assert.doesNotMatch(home, /Only profiles configured by Reverlo|Only reviews approved by Reverlo/);
   assert.match(reviewsRoute, /export async function DELETE/);
   assert.match(reviewsRoute, /UPDATE ebay_feedback SET hidden_at/);
+  assert.match(reviewsRoute, /SELECT \* FROM \(/);
+  assert.match(ebayRoute, /getEbaySyncStatus\(env\.DB, configured\(\)\)/);
 });
 
 test("eBay feedback sync is server-side, seller-only, paginated, and additive", async () => {
