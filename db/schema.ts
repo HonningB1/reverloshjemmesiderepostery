@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const reviewCounters = sqliteTable("review_counters", {
   name: text("name").primaryKey(),
@@ -87,4 +87,58 @@ export const socialProfiles = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [uniqueIndex("social_profiles_platform_unique").on(table.platform)],
+);
+
+export const trackerProducts = sqliteTable(
+  "tracker_products",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    quantity: integer("quantity").notNull(),
+    remainingQuantity: integer("remaining_quantity").notNull(),
+    purchasePriceOre: integer("purchase_price_ore").notNull(),
+    purchaseShippingOre: integer("purchase_shipping_ore").notNull().default(0),
+    expectedSalePriceOre: integer("expected_sale_price_ore"),
+    listingPriceOre: integer("listing_price_ore"),
+    supplier: text("supplier").notNull().default(""),
+    purchaseDate: text("purchase_date").notNull(),
+    status: text("status", { enum: ["IN_STOCK", "LISTED", "RESERVED", "SOLD"] }).notNull().default("IN_STOCK"),
+    notes: text("notes").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_tracker_products_status").on(table.status),
+    index("idx_tracker_products_name").on(table.name),
+    check("tracker_products_quantity_positive", sql`${table.quantity} > 0`),
+    check("tracker_products_remaining_valid", sql`${table.remainingQuantity} >= 0 AND ${table.remainingQuantity} <= ${table.quantity}`),
+  ],
+);
+
+export const trackerTransactions = sqliteTable(
+  "tracker_transactions",
+  {
+    id: text("id").primaryKey(),
+    productId: text("product_id").notNull().references(() => trackerProducts.id, { onDelete: "cascade" }),
+    type: text("type", { enum: ["PURCHASE", "SALE"] }).notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPriceOre: integer("unit_price_ore").notNull(),
+    shippingOre: integer("shipping_ore").notNull().default(0),
+    supplier: text("supplier"),
+    platform: text("platform"),
+    feeOre: integer("fee_ore").notNull().default(0),
+    promotedFeeOre: integer("promoted_fee_ore").notNull().default(0),
+    otherCostsOre: integer("other_costs_ore").notNull().default(0),
+    costBasisOre: integer("cost_basis_ore").notNull().default(0),
+    revenueOre: integer("revenue_ore").notNull().default(0),
+    totalCostsOre: integer("total_costs_ore").notNull().default(0),
+    netProfitOre: integer("net_profit_ore").notNull().default(0),
+    occurredAt: text("occurred_at").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_tracker_transactions_product_id").on(table.productId),
+    index("idx_tracker_transactions_type_date").on(table.type, table.occurredAt),
+    index("idx_tracker_transactions_date").on(table.occurredAt),
+  ],
 );

@@ -47,7 +47,18 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    const response = await handler.fetch(request, env, ctx);
+    if (url.pathname === "/track" || url.pathname.startsWith("/track/") || url.pathname.startsWith("/api/track/")) {
+      const privateResponse = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+      privateResponse.headers.set("X-Robots-Tag", "noindex, nofollow");
+      privateResponse.headers.set("Cache-Control", "private, no-store, max-age=0");
+      return privateResponse;
+    }
+    return response;
   },
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(syncEbayFeedback(env));
