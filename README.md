@@ -37,6 +37,18 @@ npx wrangler d1 execute reverlo-db --local --file=drizzle/0004_review_deal_types
 
 `drizzle/0002_ebay_feedback.sql` adds an eBay cache, a locally-hidden state, and sync metadata. `drizzle/0003_ebay_feedback_role.sql` adds a seller/buyer role and defaults the existing imported feedback to `SELLER`. `drizzle/0004_review_deal_types.sql` adds the nullable Sale/Purchase type to review links and Reverlo reviews, preserving existing reviews as unclassified. None of these migrations delete existing reviews, review links, or social profiles. If `0002` and `0003` have already run in production, apply only `0004`.
 
+## Private reselling tracker
+
+The private `/track` workspace uses only the dedicated `tracker_products` and `tracker_transactions` tables introduced by `drizzle/0005_private_reselling_tracker.sql`. Money is stored as integer øre and tracker records do not share tables with public reviews, review links, social profiles, or imported eBay feedback.
+
+Apply the tracker migration only after confirming the live database is already current through `0004`:
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0005_private_reselling_tracker.sql
+```
+
+Cloudflare Access must protect both `/track*` and `/api/track/*`. The tracker deliberately has no application-level login and is not linked from the public profile or included in the sitemap.
+
 ## eBay seller- and buyer-feedback sync
 
 The Worker calls eBay's Trading API `GetFeedback` server-side using `FeedbackReceivedAsSeller` and `FeedbackReceivedAsBuyer`; browser code receives only cached D1 data. Configure these Worker secrets (never put them in source or frontend variables):
