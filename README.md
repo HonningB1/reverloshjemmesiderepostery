@@ -39,7 +39,7 @@ npx wrangler d1 execute reverlo-db --local --file=drizzle/0004_review_deal_types
 
 ## Private reselling tracker
 
-The private `/track` workspace uses only the dedicated `tracker_products` and `tracker_transactions` tables introduced by `drizzle/0005_private_reselling_tracker.sql`. Money is stored as integer øre and tracker records do not share tables with public reviews, review links, social profiles, or imported eBay feedback.
+The private `/track` workspace starts with the dedicated `tracker_products` and `tracker_transactions` tables introduced by `drizzle/0005_private_reselling_tracker.sql`. Money is stored as integer øre and tracker records do not share tables with public reviews, review links, social profiles, or imported eBay feedback.
 
 Apply the tracker migration only after confirming the live database is already current through `0004`:
 
@@ -47,7 +47,38 @@ Apply the tracker migration only after confirming the live database is already c
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0005_private_reselling_tracker.sql
 ```
 
+Expenses, recurring subscription definitions, and actual subscription payment history are added separately by `drizzle/0007_tracker_expenses_subscriptions.sql`. Subscription costs are informational forecasts; only rows in `tracker_subscription_payments` count as Operating Expenses.
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0007_tracker_expenses_subscriptions.sql
+```
+
 Cloudflare Access must protect both `/track*` and `/api/track/*`. The tracker deliberately has no application-level login and is not linked from the public profile or included in the sitemap.
+
+### One-off ResellTrack import
+
+`scripts/import-reselltrack.mjs` validates a legacy ResellTrack JSON export and is always a dry run unless `--apply` and an explicit D1 target are provided. It imports inventory products, one purchase transaction per product, linked sales, ordinary expenses, subscriptions, and actual subscription payment history. Revolut transfers, VAT metadata, and other unsupported account data remain outside the import.
+
+Run the report without writing to D1:
+
+```powershell
+npm run tracker:import -- C:\path\to\reselltrack-data.json
+```
+
+Before a first real import, apply the additive import-ledger and expense migrations after `0005`:
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0006_tracker_import_ledger.sql
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0007_tracker_expenses_subscriptions.sql
+```
+
+The validated report prints a canonical SHA-256 value. A real import requires that exact value as an acknowledgement:
+
+```powershell
+npm run tracker:import -- C:\path\to\reselltrack-data.json --apply --remote --confirm SHA256_FROM_DRY_RUN
+```
+
+The import uses deterministic product and transaction IDs plus the unique source hash in `tracker_imports`. Reapplying the same export, or another export containing the same legacy record IDs, is rejected instead of duplicating data. Any critical validation issue blocks the complete import.
 
 ## eBay seller- and buyer-feedback sync
 

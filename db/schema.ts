@@ -142,3 +142,77 @@ export const trackerTransactions = sqliteTable(
     index("idx_tracker_transactions_date").on(table.occurredAt),
   ],
 );
+
+export const trackerImports = sqliteTable(
+  "tracker_imports",
+  {
+    id: text("id").primaryKey(),
+    source: text("source").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    productCount: integer("product_count").notNull(),
+    purchaseCount: integer("purchase_count").notNull(),
+    saleCount: integer("sale_count").notNull(),
+    unitsPurchased: integer("units_purchased").notNull(),
+    unitsSold: integer("units_sold").notNull(),
+    summaryJson: text("summary_json").notNull(),
+    importedAt: text("imported_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [uniqueIndex("tracker_imports_source_sha256_unique").on(table.sourceSha256)],
+);
+
+export const trackerExpenses = sqliteTable(
+  "tracker_expenses",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    amountOre: integer("amount_ore").notNull(),
+    category: text("category").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    notes: text("notes").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_tracker_expenses_date").on(table.occurredAt),
+    index("idx_tracker_expenses_category").on(table.category),
+    check("tracker_expenses_amount_positive", sql`${table.amountOre} > 0`),
+  ],
+);
+
+export const trackerSubscriptions = sqliteTable(
+  "tracker_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    costOre: integer("cost_ore").notNull(),
+    category: text("category").notNull(),
+    billingPeriod: text("billing_period", { enum: ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "CUSTOM"] }).notNull(),
+    nextPaymentDate: text("next_payment_date").notNull(),
+    autoRenew: integer("auto_renew", { mode: "boolean" }).notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "ARCHIVED"] }).notNull().default("ACTIVE"),
+    notes: text("notes").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_tracker_subscriptions_status_renewal").on(table.status, table.nextPaymentDate),
+    check("tracker_subscriptions_cost_positive", sql`${table.costOre} > 0`),
+  ],
+);
+
+export const trackerSubscriptionPayments = sqliteTable(
+  "tracker_subscription_payments",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id").notNull().references(() => trackerSubscriptions.id, { onDelete: "restrict" }),
+    amountOre: integer("amount_ore").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    notes: text("notes").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_tracker_subscription_payments_subscription_date").on(table.subscriptionId, table.occurredAt),
+    index("idx_tracker_subscription_payments_date").on(table.occurredAt),
+    check("tracker_subscription_payments_amount_positive", sql`${table.amountOre} > 0`),
+  ],
+);
