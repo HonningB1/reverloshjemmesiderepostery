@@ -13,7 +13,8 @@ export function trackerUnavailable() {
 
 export function trackerError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
-  if (message.includes("no such table") || message.includes("tracker_products") || message.includes("tracker_transactions")) return trackerUnavailable();
+  if (message.includes("no such table") || message.includes("tracker_products") || message.includes("tracker_transactions") ||
+      message.includes("tracker_expenses") || message.includes("tracker_subscriptions") || message.includes("tracker_subscription_payments")) return trackerUnavailable();
   console.error("Reverlo tracker request failed", { message: message.slice(0, 300) });
   return Response.json({ error: fallback }, { status: 500 });
 }
@@ -61,6 +62,18 @@ export function productId() {
 
 export function transactionId() {
   return `txn_${crypto.randomUUID()}`;
+}
+
+export function expenseId() {
+  return `exp_${crypto.randomUUID()}`;
+}
+
+export function subscriptionId() {
+  return `sub_${crypto.randomUUID()}`;
+}
+
+export function subscriptionPaymentId() {
+  return `subpay_${crypto.randomUUID()}`;
 }
 
 export function allocatedShipping(totalShippingOre: number, totalQuantity: number, soldBefore: number, soldQuantity: number) {
