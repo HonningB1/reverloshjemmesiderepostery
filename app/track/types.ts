@@ -212,11 +212,11 @@ export type EmailImportStatus = "RECEIVED" | "PROCESSING" | "NEEDS_REVIEW" | "RE
 export type TrackerEmailImportItem = { id: string; emailImportId: string; position: number; parsed: Record<string, unknown>; importedProductId: string | null; importedTransactionId: string | null };
 export type TrackerEmailImport = {
   id: string; status: EmailImportStatus; messageId: string | null; originalSender: string; forwardedBy: string; recipient: string; subject: string;
-  emailDate: string | null; receivedAt: string; textBody: string; htmlBody: string; attachments: Array<{ name: string; contentType: string; size: number | null }>;
-  parsed: { supplier: string | null; supplierSource: string | null; orderNumber: string | null; purchaseDate: string | null; currency: string | null;
+  originalSubject: string; emailDate: string | null; receivedAt: string; textBody: string; htmlBody: string; attachments: Array<{ name: string; contentType: string; size: number | null; sha256?: string | null; text?: string; extractionStatus?: string; issue?: string | null; pages?: number | null }>;
+  parsed: { supplier: string | null; supplierSource: string | null; originalSenderName?: string | null; originalSenderEmail?: string | null; originalSubject?: string | null; orderNumber: string | null; orderNumberSource?: string | null; invoiceNumber?: string | null; invoiceNumberSource?: string | null; purchaseDate: string | null; purchaseDateSource?: string | null; currency: string | null;
     subtotal: { minor: number; currency: string } | null; shipping: { minor: number; currency: string } | null; discount: { minor: number; currency: string } | null;
-    total: { minor: number; currency: string } | null; vatAmount: { minor: number; currency: string } | null; vatRateBps: number | null; issues: string[]; textPreview: string };
-  review: { supplier: string; purchaseDate: string; fxRate: string; items: Array<{ name: string; quantity: number; unitPriceOre: number | null; shippingOre: number | null;
+    total: { minor: number; currency: string } | null; vatAmount: { minor: number; currency: string } | null; vatRateBps: number | null; issues: string[]; conflicts?: string[]; documents?: Array<{ name: string; extractionStatus: string }>; textPreview: string };
+  review: { supplier: string; purchaseDate: string; fxRate: string; orderNumber?: string; invoiceNumber?: string; currency?: string; documentTotals?: Record<string, string>; items: Array<{ sourceItemId?: string | null; name: string; quantity: number; unitPriceOre: number | null; shippingOre: number | null;
     supplierCountry: string; priceMode: string; vatTreatment: string; vatRateBps: number | null; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null }> };
   items: TrackerEmailImportItem[]; errorCode: string | null; importedAt: string | null; createdAt: string; updatedAt: string;
 };

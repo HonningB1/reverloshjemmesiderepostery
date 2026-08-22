@@ -1,19 +1,22 @@
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import { type EmailImportStatus, type EmailPurchaseReview, type ParsedPurchaseEmail } from "../../../../lib/tracker-email-parser";
-import { cleanTrackerText, noStoreJson, strictTrackerText, trackerDb, trackerError, trackerUnavailable } from "../../../../lib/tracker";
+import { cleanTrackerText, emailImportItemId, noStoreJson, strictTrackerText, trackerDb, trackerError, trackerUnavailable } from "../../../../lib/tracker";
 
-type ImportRow = { id: string; status: EmailImportStatus; messageId: string | null; originalSender: string; forwardedBy: string; recipient: string; subject: string; emailDate: string | null; receivedAt: string; textBody: string; htmlBody: string; attachmentsJson: string; parsedJson: string; reviewJson: string; errorCode: string | null; importedAt: string | null; createdAt: string; updatedAt: string };
+type ImportRow = { id: string; status: EmailImportStatus; messageId: string | null; originalSender: string; forwardedBy: string; recipient: string; subject: string; originalSubject: string; emailDate: string | null; receivedAt: string; textBody: string; htmlBody: string; attachmentsJson: string; parsedJson: string; reviewJson: string; errorCode: string | null; importedAt: string | null; createdAt: string; updatedAt: string };
 type ItemRow = { id: string; emailImportId: string; position: number; parsedJson: string; importedProductId: string | null; importedTransactionId: string | null };
-const importSelect = `id, status, message_id AS messageId, original_sender AS originalSender, forwarded_by AS forwardedBy, recipient, subject,
+const importSelect = `id, status, message_id AS messageId, original_sender AS originalSender, forwarded_by AS forwardedBy, recipient, subject, original_subject AS originalSubject,
   email_date AS emailDate, received_at AS receivedAt, text_body AS textBody, html_body AS htmlBody, attachments_json AS attachmentsJson,
   parsed_json AS parsedJson, review_json AS reviewJson, error_code AS errorCode, imported_at AS importedAt, created_at AS createdAt, updated_at AS updatedAt`;
 
 function json<T>(value: string, fallback: T): T { try { return JSON.parse(value) as T; } catch { return fallback; } }
 function parseReview(value: unknown, currency: string | null) {
   if (!value || typeof value !== "object") return null; const row = value as Record<string, unknown>;
-  const supplier = cleanTrackerText(row.supplier, 120, true); const purchaseDate = strictTrackerText(row.purchaseDate, 10, true); const fxRate = cleanTrackerText(row.fxRate, 120) ?? "";
+  const supplier = cleanTrackerText(row.supplier, 120, true); const purchaseDate = strictTrackerText(row.purchaseDate, 10, true); const fxRate = cleanTrackerText(row.fxRate, 120) ?? ""; const reviewCurrency = cleanTrackerText(row.currency ?? currency ?? "", 3)?.toUpperCase() ?? "";
   if (!supplier || !purchaseDate || !Array.isArray(row.items) || !row.items.length ||
-      (currency !== "DKK" && !/^\d{1,8}(?:[.,]\d{1,8})?$/.test(fxRate))) return null;
+      (reviewCurrency && !["DKK", "EUR", "USD", "GBP", "SEK", "NOK"].includes(reviewCurrency)) ||
+      (reviewCurrency !== "DKK" && !/^\d{1,8}(?:[.,]\d{1,8})?$/.test(fxRate))) return null;
+  const orderNumber = cleanTrackerText(row.orderNumber ?? "", 120) ?? ""; const invoiceNumber = cleanTrackerText(row.invoiceNumber ?? "", 120) ?? "";
+  const documentTotals = row.documentTotals && typeof row.documentTotals === "object" ? Object.fromEntries(Object.entries(row.documentTotals as Record<string, unknown>).map(([key, item]) => [key, cleanTrackerText(item, 40) ?? ""])) : {};
   const items: EmailPurchaseReview["items"] = [];
   for (const item of row.items) {
     if (!item || typeof item !== "object") return null; const input = item as Record<string, unknown>;
@@ -23,11 +26,12 @@ function parseReview(value: unknown, currency: string | null) {
       supplier, supplierCountry: input.supplierCountry, occurredAt: purchaseDate, notes: input.notes ?? "", priceMode: input.priceMode,
       vatTreatment: input.vatTreatment, vatRateBps: input.vatRateBps, inputVatOre: input.inputVatOre, outputVatOre: input.outputVatOre, deductibleVatOre: input.deductibleVatOre });
     if (!purchase) return null;
-    items.push({ name: purchase.name, quantity: purchase.quantity, unitPriceOre: purchase.unitPriceOre, shippingOre: purchase.shippingOre,
+    const sourceItemId = strictTrackerText(input.sourceItemId, 100);
+    items.push({ sourceItemId: sourceItemId || null, name: purchase.name, quantity: purchase.quantity, unitPriceOre: purchase.unitPriceOre, shippingOre: purchase.shippingOre,
       supplierCountry: purchase.supplierCountry, priceMode: purchase.priceMode, vatTreatment: purchase.vatTreatment, vatRateBps: purchase.vatRateBps,
       inputVatOre: purchase.inputVatOre, outputVatOre: purchase.outputVatOre, deductibleVatOre: purchase.deductibleVatOre });
   }
-  return { supplier, purchaseDate, fxRate, items } satisfies EmailPurchaseReview;
+  return { supplier, purchaseDate, fxRate, orderNumber, invoiceNumber, currency: reviewCurrency, documentTotals, items } satisfies EmailPurchaseReview;
 }
 
 async function listImports(db: D1Database) {
@@ -75,13 +79,16 @@ export async function PATCH(request: Request) {
         const review = parseReview(json(entry.reviewJson, {}), parsed.currency);
         if (!review) throw new Error("Stored email-import review is invalid.");
         const items = (await db.prepare("SELECT id, position FROM tracker_email_import_items WHERE email_import_id = ? ORDER BY position").bind(id).all<{ id: string; position: number }>()).results;
-        if (items.length !== review.items.length) throw new Error("Email-import line items do not match its reviewed purchase.");
+        const itemIds = new Set(items.map((item) => item.id)); if (review.items.some((item) => item.sourceItemId && !itemIds.has(item.sourceItemId))) throw new Error("Email-import review refers to an unknown line item.");
         const created = review.items.map((item) => createTrackerPurchaseStatements(db, parseTrackerPurchaseInput({ ...item, supplier: review.supplier, occurredAt: review.purchaseDate,
-          notes: `Email import ${id}${parsed.orderNumber ? ` · Order ${parsed.orderNumber}` : ""}` })!));
+          notes: `Email import ${id}${review.orderNumber ? ` · Order ${review.orderNumber}` : review.invoiceNumber ? ` · Invoice ${review.invoiceNumber}` : ""}` })!));
         await db.batch([
           ...created.flatMap((purchase) => purchase.statements),
-          ...created.map((purchase, index) => db.prepare("UPDATE tracker_email_import_items SET imported_product_id = ?, imported_transaction_id = ? WHERE id = ?")
-            .bind(purchase.productId, purchase.transactionId, items[index].id)),
+          ...created.map((purchase, index) => review.items[index].sourceItemId
+            ? db.prepare("UPDATE tracker_email_import_items SET imported_product_id = ?, imported_transaction_id = ? WHERE id = ?")
+              .bind(purchase.productId, purchase.transactionId, review.items[index].sourceItemId)
+            : db.prepare("INSERT INTO tracker_email_import_items (id, email_import_id, position, parsed_json, imported_product_id, imported_transaction_id) VALUES (?, ?, ?, ?, ?, ?)")
+              .bind(emailImportItemId(), id, items.length + index, JSON.stringify({ source: "manual_review_line" }), purchase.productId, purchase.transactionId)),
           db.prepare("UPDATE tracker_email_imports SET status = 'IMPORTED', imported_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'PROCESSING'").bind(id),
         ]);
         return noStoreJson({ id, status: "IMPORTED", transactionIds: created.map((purchase) => purchase.transactionId) });

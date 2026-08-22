@@ -148,6 +148,10 @@ export const trackerDa = {
   "EMAIL_IMPORT_ALREADY_IMPORTED": "Denne mailimport er allerede importeret.", "EMAIL_IMPORT_NOT_READY": "Gennemfør gennemgangen før købet importeres.",
   "EMAIL_IMPORT_REVIEW_INCOMPLETE": "Gennemgangen er ufuldstændig, eller momsoplysningerne er ugyldige.", "EMAIL_IMPORTS_LOAD_FAILED": "Mailimporterne kunne ikke indlæses.",
   "EMAIL_IMPORT_UPDATE_FAILED": "Mailimporten kunne ikke opdateres.",
+  "Invoice number": "Fakturanummer", "Original subject": "Oprindeligt emne", "Document totals": "Dokumenttotaler", "Choose currency": "Vælg valuta",
+  "Add line item": "Tilføj varelinje", "Remove line item": "Fjern varelinje", "Parsed email": "Fortolket e-mail", "Manual review line": "Manuel gennemgangslinje",
+  "Document conflicts require review": "Dokumentkonflikter kræver gennemgang", "CONFLICTING_SUPPLIER": "Modstridende leverandør", "CONFLICTING_ORDER_NUMBER": "Modstridende ordrenummer", "CONFLICTING_INVOICE_NUMBER": "Modstridende fakturanummer",
+  "CONFLICTING_PURCHASE_DATE": "Modstridende købsdato", "CONFLICTING_SUBTOTAL": "Modstridende delsum", "CONFLICTING_SHIPPING": "Modstridende fragt", "CONFLICTING_DISCOUNT": "Modstridende rabat", "CONFLICTING_TOTAL": "Modstridende total", "CONFLICTING_VAT_AMOUNT": "Modstridende momsbeløb", "CONFLICTING_VAT_RATE": "Modstridende momssats", "CONFLICTING_LINE_ITEMS": "Modstridende varelinjer",
 } as const;
 
 export type TrackerTranslationKey = keyof typeof trackerDa;

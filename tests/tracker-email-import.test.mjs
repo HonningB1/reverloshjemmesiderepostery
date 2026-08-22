@@ -4,16 +4,23 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { calculateVatAmounts, recalculateProductSales, vatPosition } from "../lib/tracker-accounting.ts";
 import { initialEmailPurchaseReview, parsePurchaseEmail } from "../lib/tracker-email-parser.ts";
+import { extractPdfText } from "../email-worker/src/pdf.ts";
 
 const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
 const order = (text, htmlBody = "") => parsePurchaseEmail({ from: "orders@example.com", subject: "Order #ABC-123", textBody: text, htmlBody });
+function textPdf(lines) {
+  const stream = `BT\n/F1 12 Tf\n72 720 Td\n${lines.map((line, index) => `${index ? "0 -18 Td\n" : ""}(${line.replace(/([\\()])/g, "\\$1")}) Tj`).join("\n")}\nET`;
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>", `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  let output = "%PDF-1.4\n"; const offsets = [0]; objects.forEach((object, index) => { offsets.push(Buffer.byteLength(output)); output += `${index + 1} 0 obj\n${object}\nendobj\n`; }); const xref = Buffer.byteLength(output);
+  return new Uint8Array(Buffer.from(`${output}xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`));
+}
 
 test("generic email parser extracts a documented single-item DKK order with shipping, discount and VAT", () => {
   const parsed = order(`Order number: ABC-123\nOrder date: 22.08.2026\n3 × Starlink Mini  1.590,00 DKK\nSubtotal: 4.770,00 DKK\nShipping: 0,00 DKK\nDiscount: 100,00 DKK\nMoms: 934,00 DKK (25%)\nTotal: 4.670,00 DKK`);
   assert.equal(parsed.orderNumber, "ABC-123"); assert.equal(parsed.purchaseDate, "2026-08-22"); assert.equal(parsed.currency, "DKK");
-  assert.deepEqual(parsed.items[0], { name: "Starlink Mini", quantity: 3, unitAmount: { minor: 159000, currency: "DKK", raw: "1.590,00 DKK", source: "email_line_item", provenance: "DOCUMENTED" }, source: "email_line_item", provenance: "DOCUMENTED" });
-  assert.equal(parsed.shipping?.minor, 0); assert.equal(parsed.shipping?.source, "email_summary_shipping"); assert.equal(parsed.discount?.minor, 10000); assert.equal(parsed.vatAmount?.minor, 93400); assert.equal(parsed.vatRateBps, 2500);
+  assert.deepEqual(parsed.items[0], { name: "Starlink Mini", quantity: 3, unitAmount: { minor: 159000, currency: "DKK", raw: "1.590,00 DKK", source: "email_body", provenance: "DOCUMENTED" }, source: "email_body", provenance: "DOCUMENTED" });
+  assert.equal(parsed.shipping?.minor, 0); assert.equal(parsed.shipping?.source, "email_body"); assert.equal(parsed.discount?.minor, 10000); assert.equal(parsed.vatAmount?.minor, 93400); assert.equal(parsed.vatRateBps, 2500);
   const review = initialEmailPurchaseReview(parsed); assert.equal(review.items[0].unitPriceOre, 159000); assert.equal(review.items[0].shippingOre, 0); assert.equal(review.items[0].vatTreatment, "");
 });
 
@@ -34,6 +41,40 @@ test("parser never invents supplier country or VAT treatment", () => {
   assert.ok(parsed.issues.includes("VAT_INCOMPLETE"));
 });
 
+test("forwarded Gmail mail preserves the original sender name and original receipt reference", () => {
+  const parsed = parsePurchaseEmail({ from: "me@gmail.com", subject: "Fwd: Your receipt from Goatify by MMax GmbH #2572-0086", textBody: "---------- Videresendt mail ---------\nFra: Goatify by MMax GmbH <invoice+statements@goatify.io>\nEmne: Your receipt from Goatify by MMax GmbH #2572-0086\n\nThank you", attachments: [] });
+  assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.equal(parsed.originalSenderEmail, "invoice+statements@goatify.io"); assert.equal(parsed.invoiceNumber, "2572-0086"); assert.notEqual(parsed.supplier, "gmail.com");
+});
+
+test("text-based PDF extraction feeds a single review line without OCR", async () => {
+  const pdf = await extractPdfText(textPdf(["Invoice number: INV-100", "1 x Starlink Mini 1590,00 DKK", "Subtotal: 1590,00 DKK", "Total: 1590,00 DKK"]));
+  assert.equal(pdf.extractionStatus, "EXTRACTED"); const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments: [{ name: "Invoice-INV-100.pdf", contentType: "application/pdf", size: 400, ...pdf }] });
+  assert.equal(parsed.items.length, 1); assert.equal(parsed.items[0].name, "Starlink Mini"); assert.equal(parsed.items[0].quantity, 1); assert.equal(parsed.total?.minor, 159000); assert.equal(parsed.invoiceNumber, "INV-100");
+});
+
+test("multiple PDF invoice lines become multiple review lines", () => {
+  const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments: [{ name: "Invoice.pdf", contentType: "application/pdf", size: 100, sha256: "a".repeat(64), extractionStatus: "EXTRACTED", text: "2 x Cable 10,00 DKK\n1 x Adapter 25,00 DKK\nTotal: 45,00 DKK" }] });
+  assert.equal(parsed.items.length, 2); assert.equal(parsed.items[1].name, "Adapter");
+});
+
+test("invoice and receipt with equivalent lines do not double the draft", () => {
+  const attachments = ["Invoice-A.pdf", "Receipt-A.pdf"].map((name, index) => ({ name, contentType: "application/pdf", size: 100, sha256: String(index).repeat(64), extractionStatus: "EXTRACTED", text: "1 x Cable 10,00 DKK\nTotal: 10,00 DKK" }));
+  const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments }); assert.equal(parsed.items.length, 1); assert.equal(parsed.conflicts.length, 0);
+});
+
+test("conflicting PDF totals remain visible and force review", () => {
+  const attachments = ["Invoice-A.pdf", "Receipt-A.pdf"].map((name, index) => ({ name, contentType: "application/pdf", size: 100, sha256: String(index).repeat(64), extractionStatus: "EXTRACTED", text: `1 x Cable 10,00 DKK\nTotal: ${index ? "11,00" : "10,00"} DKK` }));
+  const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments }); assert.ok(parsed.conflicts.includes("CONFLICTING_TOTAL")); assert.equal(parsed.total, null);
+});
+
+test("image-only or malformed PDFs stay review-first and never invoke OCR", async () => {
+  const originalWarn = console.warn; console.warn = () => {};
+  let pdf;
+  try { pdf = await extractPdfText(new TextEncoder().encode("%PDF-not-a-document")); } finally { console.warn = originalWarn; }
+  assert.notEqual(pdf.extractionStatus, "EXTRACTED");
+  const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments: [{ name: "Scan.pdf", contentType: "application/pdf", size: 20, ...pdf }] }); assert.ok(parsed.issues.includes("PDF_TEXT_UNAVAILABLE")); assert.equal(parsed.items.length, 0);
+});
+
 test("email review purchase uses exactly the manual VAT and accounting calculation", () => {
   const payload = { name: "Starlink Mini", quantity: 3, unitPriceOre: 127200, shippingOre: 0, supplier: "Dustin", supplierCountry: "DK", occurredAt: "2026-08-22", notes: "Email import", priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_PURCHASE_DEDUCTIBLE", vatRateBps: 2500, inputVatOre: null, outputVatOre: null, deductibleVatOre: null };
   const manual = calculateVatAmounts({ type: "PURCHASE", quantity: payload.quantity, enteredUnitPriceOre: payload.unitPriceOre, enteredShippingOre: payload.shippingOre, priceMode: payload.priceMode, vatTreatment: payload.vatTreatment, vatRateBps: payload.vatRateBps });
@@ -50,9 +91,15 @@ test("email import schema is additive and enforces server-side fingerprints", as
   assert.throws(() => db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint) VALUES ('two', 'NEEDS_REVIEW', 'same')").run()); db.close();
 });
 
+test("PDF import migration is additive and makes attachment fingerprints idempotent", async () => {
+  const [base, migration] = await Promise.all([source("drizzle/0010_tracker_email_purchase_imports.sql"), source("drizzle/0011_tracker_email_pdf_imports.sql")]);
+  assert.match(migration, /ADD COLUMN original_subject/); assert.match(migration, /ADD COLUMN attachment_fingerprint/); assert.match(migration, /idx_tracker_email_imports_attachment_fingerprint/); assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|UPDATE tracker_/i);
+  const db = new DatabaseSync(":memory:"); db.exec(base); db.exec(migration); db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, attachment_fingerprint) VALUES ('one', 'NEEDS_REVIEW', 'source-one', 'attachment-one')").run(); assert.throws(() => db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, attachment_fingerprint) VALUES ('two', 'NEEDS_REVIEW', 'source-two', 'attachment-one')").run()); db.close();
+});
+
 test("ingestion validates secrets, limits, payloads and duplicate fingerprints before any purchase creation", async () => {
   const [ingest, imports, worker] = await Promise.all([source("app/api/track/email-ingest/route.ts"), source("app/api/track/email-imports/route.ts"), source("email-worker/src/index.ts")]);
-  assert.match(ingest, /sameSecret/); assert.match(ingest, /x-reverlo-email-ingest-secret/); assert.match(ingest, /MAX_REQUEST_BYTES/); assert.match(ingest, /source_fingerprint/); assert.match(ingest, /status: "DUPLICATE"/);
+  assert.match(ingest, /sameSecret/); assert.match(ingest, /x-reverlo-email-ingest-secret/); assert.match(ingest, /MAX_REQUEST_BYTES/); assert.match(ingest, /attachment_fingerprint/); assert.match(ingest, /status: "DUPLICATE"/);
   assert.match(imports, /status = 'PROCESSING'/); assert.match(imports, /status = 'READY'/); assert.match(imports, /createTrackerPurchaseStatements/); assert.match(imports, /status = 'IMPORTED'/);
-  assert.match(worker, /PostalMime\.parse\(message\.raw\)/); assert.match(worker, /message\.rawSize/); assert.match(worker, /REVERLO_EMAIL_INGEST_SECRET/); assert.match(worker, /CF-Access-Client-Id/);
+  assert.match(worker, /PostalMime\.parse\(message\.raw\)/); assert.match(worker, /message\.rawSize/); assert.match(worker, /MAX_TOTAL_PDF_BYTES/); assert.match(worker, /extractPdfText/); assert.match(worker, /REVERLO_EMAIL_INGEST_SECRET/); assert.match(worker, /CF-Access-Client-Id/);
 });

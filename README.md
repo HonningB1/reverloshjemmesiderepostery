@@ -67,6 +67,17 @@ npx wrangler d1 execute reverlo-db --remote --file=drizzle/0009_tracker_detached
 
 Cloudflare Access must protect both `/track*` and `/api/track/*`. The tracker deliberately has no application-level login and is not linked from the public profile or included in the sitemap.
 
+### Purchase email intake
+
+The review-first purchase-email queue is introduced by `drizzle/0010_tracker_email_purchase_imports.sql`. PDF text-layer provenance and attachment-hash deduplication are added by `drizzle/0011_tracker_email_pdf_imports.sql`. Apply these only after the earlier tracker migrations are already present:
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0010_tracker_email_purchase_imports.sql
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0011_tracker_email_pdf_imports.sql
+```
+
+The separate `email-worker/` receives `purchases@reverlo.nl`. It has no D1 binding and must use the existing intake secret plus a Cloudflare Access service token for `/api/track/email-ingest`. PDF binaries are transient: only extracted text, a SHA-256 fingerprint, and extraction metadata reach D1. An email cannot change inventory until a user explicitly imports its reviewed purchase draft.
+
 ### One-off ResellTrack import
 
 `scripts/import-reselltrack.mjs` validates a legacy ResellTrack JSON export and is always a dry run unless `--apply` and an explicit D1 target are provided. It imports inventory products, one purchase transaction per product, linked sales, ordinary expenses, subscriptions, and actual subscription payment history. Explicit, internally reconciling VAT metadata is preserved for future imports; absent or ambiguous VAT remains unknown. Revolut transfers and other unsupported account data remain outside the import.
