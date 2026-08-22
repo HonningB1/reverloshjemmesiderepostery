@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  calculateVatAmounts, defaultTransactionVat, recalculateProductSales, vatPosition,
+  calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, vatPosition,
 } from "../lib/tracker-accounting.ts";
 
 const root = new URL("../", import.meta.url);
@@ -133,7 +133,10 @@ test("language choice and Starlink repair are explicit, persisted and dry-run sa
 
 test("normal manual transactions default to private B2C gross pricing while explicit special treatment wins", async () => {
   const purchases = await source("lib/tracker-purchases.ts");
-  assert.match(purchases, /defaultTransactionVat\("PURCHASE", transactionContext\)/); assert.match(purchases, /explicitContext \?\? "PRIVATE"/);
+  const [route, ui] = await Promise.all([source("app/api/track/transactions/route.ts"), source("app/track/TrackerTransactions.tsx")]);
+  assert.match(purchases, /priceModeForTransactionContext\(transactionContext, proposedPriceMode\)/);
+  assert.match(route, /priceModeForTransactionContext\(transactionContext, proposedPriceMode\)/);
+  assert.match(ui, /priceModeForTransactionContext\(initialTransactionContext, transaction\?\.priceMode\)/);
   const privateCost = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 125_000, enteredShippingOre: 0, ...defaultTransactionVat("PURCHASE") });
   assert.equal(privateCost.grossAmountOre, 125_000); assert.equal(privateCost.economicPurchaseCostOre, 125_000); assert.equal(privateCost.deductibleVatOre, 0);
   const b2cSale = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 100_000, enteredTotalPriceOre: 100_000, enteredShippingOre: 0, ...defaultTransactionVat("SALE") });
@@ -141,6 +144,20 @@ test("normal manual transactions default to private B2C gross pricing while expl
   assert.equal(defaultTransactionVat("SALE", "B2B"), null);
   const b2b = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 100_000, enteredShippingOre: 0, priceMode: "VAT_EXCLUSIVE", vatTreatment: "EU_B2B_SALE_REVERSE_CHARGE", vatRateBps: 0 });
   assert.equal(b2b.grossAmountOre, 100_000); assert.equal(b2b.outputVatOre, 0);
+});
+
+test("private B2C gross amounts stay inclusive during creation and editing", () => {
+  assert.equal(priceModeForTransactionContext("PRIVATE", "VAT_EXCLUSIVE"), "VAT_INCLUSIVE");
+  assert.equal(priceModeForTransactionContext("B2B", "VAT_EXCLUSIVE"), "VAT_EXCLUSIVE");
+  const sale = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 96_886, enteredTotalPriceOre: 96_886,
+    enteredShippingOre: 0, priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_SALE_VAT", vatRateBps: 2_500 });
+  assert.deepEqual({ gross: sale.grossAmountOre, revenue: sale.revenueOre, outputVat: sale.outputVatOre }, { gross: 96_886, revenue: 77_509, outputVat: 19_377 });
+  const privatePurchase = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 100_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 2_500 });
+  assert.deepEqual({ gross: privatePurchase.grossAmountOre, cost: privatePurchase.economicPurchaseCostOre, deductibleVat: privatePurchase.deductibleVatOre }, { gross: 100_000, cost: 100_000, deductibleVat: 0 });
+  const deductiblePurchase = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 100_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_PURCHASE_DEDUCTIBLE", vatRateBps: 2_500 });
+  assert.deepEqual({ gross: deductiblePurchase.grossAmountOre, cost: deductiblePurchase.economicPurchaseCostOre, inputVat: deductiblePurchase.inputVatOre }, { gross: 100_000, cost: 80_000, inputVat: 20_000 });
 });
 
 test("purchase-context migration is additive and leaves historical rows untouched", async () => {

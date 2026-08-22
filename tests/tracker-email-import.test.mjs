@@ -200,6 +200,16 @@ test("rejecting an unimported email hard-deletes its dedupe keys and cascades it
   const rejectBranch = route.slice(route.indexOf('if (action === "REJECT")'), route.indexOf("const parsed =")); assert.match(rejectBranch, /DELETE FROM tracker_email_imports/); assert.match(rejectBranch, /status IN \('RECEIVED', 'NEEDS_REVIEW', 'READY', 'DUPLICATE', 'REJECTED', 'FAILED'\)/); assert.doesNotMatch(rejectBranch, /tracker_(?:products|transactions|expenses|vat)/); db.close();
 });
 
+test("a successful reject removes the local mailimport, closes its dialog, and revalidates without a stale detail request", async () => {
+  const ui = await source("app/track/TrackerEmailImports.tsx");
+  const rejectAction = ui.slice(ui.indexOf('if (kind === "REJECT")'), ui.indexOf('await onSaved()', ui.indexOf('if (kind === "REJECT")')));
+  assert.match(rejectAction, /onRejected\(entry\.id\)/); assert.match(rejectAction, /onClose\(\)/); assert.doesNotMatch(rejectAction, /onSaved/);
+  assert.match(ui, /setImports\(\(current\) => current\.filter\(\(item\) => item\.id !== id\)\)/);
+  assert.match(ui, /setSelected\(\(current\) => current\?\.id === id \? null : current\)/);
+  assert.match(ui, /setNotice\(true\); void load\(true\)/);
+  assert.match(ui, /Email import rejected/); assert.match(ui, /The import was removed and can be submitted again/);
+});
+
 test("ingestion validates secrets, limits, payloads and duplicate fingerprints before any purchase creation", async () => {
   const [ingest, imports, worker] = await Promise.all([source("app/api/track/email-ingest/route.ts"), source("app/api/track/email-imports/route.ts"), source("email-worker/src/index.ts")]);
   assert.match(ingest, /sameSecret/); assert.match(ingest, /x-reverlo-email-ingest-secret/); assert.match(ingest, /MAX_REQUEST_BYTES/); assert.match(ingest, /attachment_fingerprint/); assert.match(ingest, /status: "DUPLICATE"/);

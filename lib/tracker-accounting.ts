@@ -34,6 +34,18 @@ export function defaultTransactionVat(type: TransactionType, context: Transactio
     : { priceMode: "VAT_INCLUSIVE" as const, vatTreatment: "DANISH_SALE_VAT" as const, vatRateBps: 2500 };
 }
 
+export function transactionContextForVatTreatment(treatment: VatTreatment | null): TransactionContext {
+  if (treatment === "EU_B2B_SALE_REVERSE_CHARGE") return "B2B";
+  if (treatment === "EU_PURCHASE_REVERSE_CHARGE" || treatment === "NO_VAT_OUTSIDE_SCOPE" || treatment === "CUSTOM_MANUAL") return "SPECIAL";
+  return "PRIVATE";
+}
+
+// A private/B2C amount is always the customer-facing or paid gross amount.
+// Special and B2B contexts retain their explicitly selected price basis.
+export function priceModeForTransactionContext(context: TransactionContext, proposed: PriceMode | null | undefined) {
+  return context === "PRIVATE" ? "VAT_INCLUSIVE" as const : proposed ?? null;
+}
+
 function safeMoney(value: number, label: string) {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_MONEY_ORE) {
     throw new Error(`${label} is outside the supported money range.`);

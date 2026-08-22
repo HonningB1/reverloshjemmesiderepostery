@@ -1,4 +1,4 @@
-import { calculateVatAmounts, defaultTransactionVat, recalculateProductSales, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
   noStoreJson, optionalTrackerMoney, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
@@ -40,11 +40,18 @@ function parseOptionalMoney(value: unknown) {
 }
 
 function parseAccounting(payload: Record<string, unknown>, type: TransactionType, quantity: number, unitPriceOre: number, shippingOre: number) {
-  const explicitContext = payload.transactionContext === undefined || payload.transactionContext === "" ? null : trackerTransactionContext(payload.transactionContext);
-  const defaults = defaultTransactionVat(type, explicitContext ?? "PRIVATE");
-  const priceMode = trackerPriceMode(payload.priceMode ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.priceMode : undefined));
-  const vatTreatment = trackerVatTreatment(payload.vatTreatment ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.vatTreatment : undefined));
-  const vatRateBps = trackerInteger(payload.vatRateBps ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.vatRateBps : undefined), { max: 10_000 });
+  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== "";
+  const explicitContext = contextSupplied ? trackerTransactionContext(payload.transactionContext) : null;
+  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== "";
+  const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
+  if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
+  const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
+  if (transactionContext === "PRIVATE" && requestedTreatment && transactionContextForVatTreatment(requestedTreatment) !== "PRIVATE") return null;
+  const defaults = defaultTransactionVat(type, transactionContext);
+  const proposedPriceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
+  const priceMode = priceModeForTransactionContext(transactionContext, proposedPriceMode);
+  const vatTreatment = requestedTreatment ?? trackerVatTreatment(defaults?.vatTreatment);
+  const vatRateBps = trackerInteger(payload.vatRateBps ?? defaults?.vatRateBps, { max: 10_000 });
   const manualInputVatOre = parseOptionalMoney(payload.inputVatOre);
   const manualOutputVatOre = parseOptionalMoney(payload.outputVatOre);
   const manualDeductibleVatOre = parseOptionalMoney(payload.deductibleVatOre);
@@ -52,10 +59,8 @@ function parseAccounting(payload: Record<string, unknown>, type: TransactionType
   if (!priceMode || !vatTreatment || vatRateBps === null || manualInputVatOre === undefined ||
       manualOutputVatOre === undefined || manualDeductibleVatOre === undefined || enteredTotalPriceOre === undefined) return null;
   try {
-    const inferredContext = vatTreatment === "EU_B2B_SALE_REVERSE_CHARGE" ? "B2B" :
-      (vatTreatment === "EU_PURCHASE_REVERSE_CHARGE" || vatTreatment === "NO_VAT_OUTSIDE_SCOPE" || vatTreatment === "CUSTOM_MANUAL") ? "SPECIAL" : "PRIVATE";
     return {
-      transactionContext: explicitContext ?? inferredContext, priceMode, vatTreatment, vatRateBps,
+      transactionContext, priceMode, vatTreatment, vatRateBps,
       amounts: calculateVatAmounts({
         type, quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre,
         priceMode, vatTreatment, vatRateBps, enteredTotalPriceOre,

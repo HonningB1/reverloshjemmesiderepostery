@@ -1,4 +1,4 @@
-import { calculateVatAmounts, defaultTransactionVat } from "./tracker-accounting.ts";
+import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, transactionContextForVatTreatment } from "./tracker-accounting.ts";
 import { productId, strictTrackerText, trackerDate, trackerInteger, trackerPriceMode, trackerTransactionContext, trackerVatTreatment, transactionId } from "./tracker.ts";
 import type { PriceMode, TransactionContext, VatTreatment } from "../app/track/types.ts";
 
@@ -24,10 +24,16 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   const unitPriceOre = trackerInteger(payload.unitPriceOre, { min: 0 }); const shippingOre = trackerInteger(payload.shippingOre ?? 0);
   const supplier = strictTrackerText(payload.supplier ?? "", 120); const supplierCountry = country(payload.supplierCountry);
   const occurredAt = trackerDate(payload.occurredAt); const notes = strictTrackerText(payload.notes ?? "", 2_000);
-  const explicitContext = payload.transactionContext === undefined || payload.transactionContext === "" ? null : trackerTransactionContext(payload.transactionContext);
-  const transactionContext = explicitContext ?? "PRIVATE";
+  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== "";
+  const explicitContext = contextSupplied ? trackerTransactionContext(payload.transactionContext) : null;
+  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== "";
+  const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
+  if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
+  const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
   const defaults = defaultTransactionVat("PURCHASE", transactionContext);
-  const priceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode); const vatTreatment = trackerVatTreatment(payload.vatTreatment ?? defaults?.vatTreatment);
+  const proposedPriceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
+  const priceMode = priceModeForTransactionContext(transactionContext, proposedPriceMode);
+  const vatTreatment = requestedTreatment ?? trackerVatTreatment(defaults?.vatTreatment);
   const vatRateBps = trackerInteger(payload.vatRateBps ?? defaults?.vatRateBps, { max: 10_000 });
   const inputVatOre = optionalMoney(payload.inputVatOre); const outputVatOre = optionalMoney(payload.outputVatOre); const deductibleVatOre = optionalMoney(payload.deductibleVatOre);
   if (!name || quantity === null || unitPriceOre === null || shippingOre === null || supplier === null || supplierCountry === null ||
