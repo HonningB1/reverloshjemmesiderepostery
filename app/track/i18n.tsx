@@ -19,6 +19,8 @@ type ContextValue = {
   setLocale: (locale: TrackerLocale) => void;
   t: (key: TrackerTranslationKey | string, values?: Record<string, string | number>) => string;
   money: (ore: number, compact?: boolean) => string;
+  decimal: (ore: number) => string;
+  decimalPlaceholder: string;
   date: (value: string) => string;
   percent: (numerator: number, denominator: number) => string;
 };
@@ -42,11 +44,14 @@ export function TrackerI18nProvider({ children }: { children: ReactNode }) {
     const numberLocale = locale === "da" ? "da-DK" : "en-GB";
     const fullMoney = new Intl.NumberFormat(numberLocale, { style: "currency", currency: "DKK", minimumFractionDigits: 2 });
     const compactMoney = new Intl.NumberFormat(numberLocale, { style: "currency", currency: "DKK", notation: "compact", maximumFractionDigits: 1 });
+    const decimalInput = new Intl.NumberFormat(numberLocale, { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const dates = new Intl.DateTimeFormat(numberLocale, { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
     const percentages = new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 1, minimumFractionDigits: 1 });
     return {
       locale, setLocale, t: (key, values) => translate(locale, key, values),
       money: (ore, compact = false) => (compact && Math.abs(ore) >= 10_000_000 ? compactMoney : fullMoney).format(ore / 100),
+      decimal: (ore) => decimalInput.format(ore / 100),
+      decimalPlaceholder: locale === "da" ? "0,00" : "0.00",
       date: (raw) => { const parsed = new Date(`${raw}T00:00:00Z`); return Number.isNaN(parsed.getTime()) ? raw : dates.format(parsed); },
       percent: (numerator, denominator) => denominator ? `${percentages.format((numerator / denominator) * 100)}%` : "—",
     };

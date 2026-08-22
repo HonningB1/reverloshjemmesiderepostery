@@ -57,7 +57,7 @@ function CategoryInput({ name, categories, defaultValue }: { name: string; categ
 }
 
 function ExpenseForm({ expense, onClose, onSaved }: { expense?: TrackerExpense; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { t } = useTrackerI18n();
+  const { t, decimal, decimalPlaceholder } = useTrackerI18n();
   const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(null); const values = new FormData(event.currentTarget); const amountOre = dkkToOre(values.get("amount"));
@@ -70,7 +70,7 @@ function ExpenseForm({ expense, onClose, onSaved }: { expense?: TrackerExpense; 
     finally { setSaving(false); }
   }
   return <form className="track-form" onSubmit={submit}>
-    <div className="track-form-grid track-form-grid-main"><label className="track-field-wide">{t("Name")}<input name="name" maxLength={160} defaultValue={expense?.name} placeholder={t("Name")} required /></label><label>{t("Amount")} <small>DKK</small><input name="amount" inputMode="decimal" defaultValue={expense ? (expense.amountOre / 100).toFixed(2) : ""} placeholder="0,00" required /></label></div>
+    <div className="track-form-grid track-form-grid-main"><label className="track-field-wide">{t("Name")}<input name="name" maxLength={160} defaultValue={expense?.name} placeholder={t("Name")} required /></label><label>{t("Amount")} <small>DKK</small><input name="amount" inputMode="decimal" defaultValue={expense ? decimal(expense.amountOre) : ""} placeholder={decimalPlaceholder} required /></label></div>
     <div className="track-form-grid"><CategoryInput name="expense" categories={expenseCategories} defaultValue={expense?.category} /><label>{t("Date")}<input name="occurredAt" type="date" defaultValue={expense?.occurredAt ?? localDate()} required /></label></div>
     <label>{t("Note")}<textarea name="notes" maxLength={2000} defaultValue={expense?.notes} placeholder={t("Optional context")} /></label>
     {error ? <p className="track-form-error" role="alert">{error}</p> : null}
@@ -79,7 +79,7 @@ function ExpenseForm({ expense, onClose, onSaved }: { expense?: TrackerExpense; 
 }
 
 function SubscriptionForm({ subscription, onClose, onSaved }: { subscription?: TrackerSubscription; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { t } = useTrackerI18n();
+  const { t, decimal, decimalPlaceholder } = useTrackerI18n();
   const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(null); const values = new FormData(event.currentTarget); const costOre = dkkToOre(values.get("cost"));
@@ -92,7 +92,7 @@ function SubscriptionForm({ subscription, onClose, onSaved }: { subscription?: T
     finally { setSaving(false); }
   }
   return <form className="track-form" onSubmit={submit}>
-    <div className="track-form-grid track-form-grid-main"><label className="track-field-wide">{t("Name")}<input name="name" maxLength={160} defaultValue={subscription?.name} placeholder={t("Name")} required /></label><label>{t("Cost")} <small>{t("per billing period · DKK")}</small><input name="cost" inputMode="decimal" defaultValue={subscription ? (subscription.costOre / 100).toFixed(2) : ""} placeholder="0,00" required /></label></div>
+    <div className="track-form-grid track-form-grid-main"><label className="track-field-wide">{t("Name")}<input name="name" maxLength={160} defaultValue={subscription?.name} placeholder={t("Name")} required /></label><label>{t("Cost")} <small>{t("per billing period · DKK")}</small><input name="cost" inputMode="decimal" defaultValue={subscription ? decimal(subscription.costOre) : ""} placeholder={decimalPlaceholder} required /></label></div>
     <div className="track-form-grid"><CategoryInput name="subscription" categories={subscriptionCategories} defaultValue={subscription?.category} /><label>{t("Billing period")}<select name="billingPeriod" defaultValue={subscription?.billingPeriod ?? "MONTHLY"}>{billingPeriods.map((period) => <option value={period} key={period}>{t(billingKeys[period])}</option>)}</select></label><label>{t("Next payment")}<input name="nextPaymentDate" type="date" defaultValue={subscription?.nextPaymentDate ?? localDate()} required /></label><label>{t("Status")}<select name="status" defaultValue={subscription?.status ?? "ACTIVE"}><option value="ACTIVE">{t("Active")}</option><option value="ARCHIVED">{t("Archived")}</option></select></label></div>
     <label className="track-toggle-field" aria-label={t("Auto-renew")}><input name="autoRenew" type="checkbox" defaultChecked={Boolean(subscription?.autoRenew)} /><span><strong>{t("Auto-renew")}</strong><small>{t("Informational only. Payments are never created automatically.")}</small></span></label>
     <label>{t("Note")}<textarea name="notes" maxLength={2000} defaultValue={subscription?.notes} placeholder={t("Optional context")} /></label>
@@ -102,7 +102,7 @@ function SubscriptionForm({ subscription, onClose, onSaved }: { subscription?: T
 }
 
 function PaymentForm({ subscriptions, subscription, payment, onClose, onSaved }: { subscriptions: TrackerSubscription[]; subscription?: TrackerSubscription; payment?: TrackerSubscriptionPayment; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { t } = useTrackerI18n();
+  const { t, decimal, decimalPlaceholder } = useTrackerI18n();
   const selected = subscription ?? subscriptions.find((item) => item.id === payment?.subscriptionId) ?? subscriptions[0];
   const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -116,7 +116,7 @@ function PaymentForm({ subscriptions, subscription, payment, onClose, onSaved }:
     finally { setSaving(false); }
   }
   return <form className="track-form" onSubmit={submit}>
-    <div className="track-form-grid"><label className="track-field-wide">{t("Subscriptions")}<select name="subscriptionId" defaultValue={selected?.id} required>{subscriptions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>{t("Amount")} <small>{t("actual payment · DKK")}</small><input name="amount" inputMode="decimal" defaultValue={payment ? (payment.amountOre / 100).toFixed(2) : selected ? (selected.costOre / 100).toFixed(2) : ""} placeholder="0,00" required /></label><label>{t("Payment date")}<input name="occurredAt" type="date" defaultValue={payment?.occurredAt ?? localDate()} required /></label></div>
+    <div className="track-form-grid"><label className="track-field-wide">{t("Subscriptions")}<select name="subscriptionId" defaultValue={selected?.id} required>{subscriptions.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>{t("Amount")} <small>{t("actual payment · DKK")}</small><input name="amount" inputMode="decimal" defaultValue={payment ? decimal(payment.amountOre) : selected ? decimal(selected.costOre) : ""} placeholder={decimalPlaceholder} required /></label><label>{t("Payment date")}<input name="occurredAt" type="date" defaultValue={payment?.occurredAt ?? localDate()} required /></label></div>
     <p className="track-form-note">{t("Only this recorded payment affects Operating Expenses. The subscription’s planned cost never posts automatically.")}</p>
     <label>{t("Note")}<textarea name="notes" maxLength={2000} defaultValue={payment?.notes} placeholder={t("Optional context")} /></label>
     {error ? <p className="track-form-error" role="alert">{error}</p> : null}

@@ -10,7 +10,7 @@ export const trackerDa = {
   "Product name": "Produktnavn", "Inventory item": "Lagervare", "Quantity": "Antal", "Units": "Enheder",
   "Total quantity": "Samlet antal", "Price": "Pris", "Purchase price": "Indkøbspris", "Sale price": "Salgspris",
   "per unit · DKK": "pr. enhed · DKK", "Shipping": "Fragt", "Purchase shipping": "Indkøbsfragt",
-  "total · DKK": "i alt · DKK", "Supplier": "Leverandør", "Platform": "Platform",
+  "total · DKK": "i alt · DKK", "Supplier": "Leverandør", "Platform": "Platform", "eBay, Discord, Direct…": "eBay, Discord, Direkte…",
   "Purchase date": "Købsdato", "Sale date": "Salgsdato", "Date": "Dato", "Notes": "Noter", "Note": "Note",
   "Marketplace fees": "Markedspladsgebyrer", "Promoted listing fee": "Promoted listing-gebyr", "Other costs": "Andre omkostninger",
   "Revenue": "Omsætning", "Cost basis": "Kostpris", "Total costs": "Samlede omkostninger", "Net profit": "Nettoresultat",
