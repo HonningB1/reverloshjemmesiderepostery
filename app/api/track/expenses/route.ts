@@ -7,7 +7,8 @@ import type {
 } from "../../../track/types";
 
 const expenseSelect = `id, name, amount_ore AS amountOre, category, occurred_at AS occurredAt,
-  notes, created_at AS createdAt, updated_at AS updatedAt`;
+  notes, source_type AS sourceType, source_id AS sourceId, source_details AS sourceDetails,
+  created_at AS createdAt, updated_at AS updatedAt`;
 const subscriptionSelect = `s.id, s.name, s.cost_ore AS costOre, s.category,
   s.billing_period AS billingPeriod, s.next_payment_date AS nextPaymentDate,
   s.auto_renew AS autoRenew, s.status, s.notes, s.created_at AS createdAt, s.updated_at AS updatedAt,
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
   if (!db) return trackerUnavailable();
   try {
     const input = parseExpense(await request.json() as Record<string, unknown>);
-    if (!input) return noStoreJson({ error: "Complete the expense with a name, positive DKK amount, category and valid date." }, { status: 400 });
+    if (!input) return noStoreJson({ error: "Complete the expense with a name, positive DKK amount, category and valid date.", errorCode: "INVALID_EXPENSE" }, { status: 400 });
     const id = expenseId();
     await db.prepare(`INSERT INTO tracker_expenses (id, name, amount_ore, category, occurred_at, notes)
       VALUES (?, ?, ?, ?, ?, ?)`).bind(id, input.name, input.amountOre, input.category, input.occurredAt, input.notes).run();
@@ -90,11 +91,11 @@ export async function PATCH(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const id = cleanTrackerText(payload.id, 80, true);
     const input = parseExpense(payload);
-    if (!id || !input) return noStoreJson({ error: "The expense update contains invalid values." }, { status: 400 });
+    if (!id || !input) return noStoreJson({ error: "The expense update contains invalid values.", errorCode: "INVALID_EXPENSE" }, { status: 400 });
     const result = await db.prepare(`UPDATE tracker_expenses SET name = ?, amount_ore = ?, category = ?,
       occurred_at = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
       .bind(input.name, input.amountOre, input.category, input.occurredAt, input.notes, id).run();
-    if (result.meta.changes !== 1) return noStoreJson({ error: "This expense no longer exists." }, { status: 404 });
+    if (result.meta.changes !== 1) return noStoreJson({ error: "This expense no longer exists.", errorCode: "EXPENSE_NOT_FOUND" }, { status: 404 });
     const expense = await db.prepare(`SELECT ${expenseSelect} FROM tracker_expenses WHERE id = ?`).bind(id).first<TrackerExpense>();
     return noStoreJson({ expense });
   } catch (error) {
@@ -108,9 +109,9 @@ export async function DELETE(request: Request) {
   try {
     const payload = await request.json() as { id?: unknown };
     const id = cleanTrackerText(payload.id, 80, true);
-    if (!id) return noStoreJson({ error: "Invalid expense." }, { status: 400 });
+    if (!id) return noStoreJson({ error: "Invalid expense.", errorCode: "INVALID_EXPENSE" }, { status: 400 });
     const result = await db.prepare("DELETE FROM tracker_expenses WHERE id = ?").bind(id).run();
-    if (result.meta.changes !== 1) return noStoreJson({ error: "This expense no longer exists." }, { status: 404 });
+    if (result.meta.changes !== 1) return noStoreJson({ error: "This expense no longer exists.", errorCode: "EXPENSE_NOT_FOUND" }, { status: 404 });
     return noStoreJson({ id, deleted: true });
   } catch (error) {
     return trackerError(error, "Unable to delete the expense.");

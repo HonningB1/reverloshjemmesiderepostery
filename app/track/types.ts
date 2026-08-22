@@ -111,7 +111,8 @@ export type TrackerActivity = {
   id: string;
   kind: "PURCHASE" | "SALE" | "EXPENSE" | "SUBSCRIPTION_PAYMENT";
   title: string;
-  detail: string;
+  quantity: number | null;
+  context: string;
   amountOre: number;
   occurredAt: string;
 };
@@ -162,6 +163,9 @@ export type TrackerExpense = {
   category: string;
   occurredAt: string;
   notes: string;
+  sourceType: "SUBSCRIPTION_PAYMENT" | null;
+  sourceId: string | null;
+  sourceDetails: string | null;
   createdAt: string;
   updatedAt: string;
 };

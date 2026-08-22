@@ -27,7 +27,7 @@ export async function GET() {
         (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_subscription_payments) AS operatingExpensesOre`).first<OperatingRow>(),
       db.prepare(`SELECT COALESCE(SUM(
         purchase_price_ore * remaining_quantity +
-        CAST(purchase_shipping_ore * remaining_quantity / quantity AS INTEGER)
+        purchase_shipping_ore - CAST(purchase_shipping_ore * (quantity - remaining_quantity) / quantity AS INTEGER)
       ), 0) AS inventoryValueOre FROM tracker_products`).first<InventoryValueRow>(),
       db.prepare(`WITH daily AS (
         SELECT occurred_at AS date, SUM(net_profit_ore) AS tradingProfitOre, 0 AS operatingExpensesOre,
@@ -42,17 +42,17 @@ export async function GET() {
         SUM(tradingProfitOre) - SUM(operatingExpensesOre) AS netProfitOre,
         SUM(revenueOre) AS revenueOre, SUM(tradingCostsOre) AS tradingCostsOre
         FROM daily GROUP BY date ORDER BY date ASC`).all<ProfitPoint>(),
-      db.prepare(`SELECT id, kind, title, detail, amountOre, occurredAt FROM (
+      db.prepare(`SELECT id, kind, title, quantity, context, amountOre, occurredAt FROM (
         SELECT t.id, t.type AS kind, p.name AS title,
-          CASE WHEN t.type = 'SALE' THEN COALESCE(t.platform, 'Sale') || ' · ' || t.quantity || ' sold'
-               ELSE COALESCE(t.supplier, 'Purchase') || ' · ' || t.quantity || ' bought' END AS detail,
+          t.quantity,
+          CASE WHEN t.type = 'SALE' THEN COALESCE(t.platform, '') ELSE COALESCE(t.supplier, '') END AS context,
           CASE WHEN t.type = 'SALE' THEN t.revenue_ore ELSE t.total_costs_ore END AS amountOre,
           t.occurred_at AS occurredAt, t.created_at AS createdAt
         FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id
         UNION ALL
-        SELECT id, 'EXPENSE', name, category, amount_ore, occurred_at, created_at FROM tracker_expenses
+        SELECT id, 'EXPENSE', name, NULL, category, amount_ore, occurred_at, created_at FROM tracker_expenses
         UNION ALL
-        SELECT p.id, 'SUBSCRIPTION_PAYMENT', s.name, 'Subscription payment', p.amount_ore,
+        SELECT p.id, 'SUBSCRIPTION_PAYMENT', s.name, NULL, '', p.amount_ore,
           p.occurred_at, p.created_at FROM tracker_subscription_payments p
           JOIN tracker_subscriptions s ON s.id = p.subscription_id
       ) ORDER BY occurredAt DESC, createdAt DESC LIMIT 7`).all<TrackerActivity>(),

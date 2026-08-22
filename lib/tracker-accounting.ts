@@ -1,4 +1,4 @@
-import type { PriceMode, TransactionType, VatTreatment } from "../app/track/types";
+import type { AnalyticsPeriod, PriceMode, TransactionType, VatTreatment } from "../app/track/types";
 
 const MAX_MONEY_ORE = 100_000_000_000;
 
@@ -229,9 +229,9 @@ export function recalculateProductSales(
       (BigInt(product.purchaseShippingOre) * BigInt(soldBefore)) / BigInt(product.quantity),
     );
     const costBasisOre = safeMoney(product.purchasePriceOre * sale.quantity + allocatedShippingOre, "Sale cost basis");
-    const sellingCostsOre = safeMoney(sale.feeOre + sale.promotedFeeOre + sale.shippingOre + sale.otherCostsOre, "Sale costs");
-    const totalCostsOre = safeMoney(costBasisOre + sellingCostsOre, "Sale total costs");
-    updates.push({ ...sale, costBasisOre, totalCostsOre, netProfitOre: sale.revenueOre - totalCostsOre });
+    const profit = calculateProfit({ revenueOre: sale.revenueOre, costBasisOre, feeOre: sale.feeOre,
+      promotedFeeOre: sale.promotedFeeOre, shippingOre: sale.shippingOre, otherCostsOre: sale.otherCostsOre });
+    updates.push({ ...sale, costBasisOre, totalCostsOre: profit.tradingCostsOre, netProfitOre: profit.tradingProfitOre });
     soldBefore += sale.quantity;
   }
   return { remainingQuantity: product.quantity - soldBefore, sales: updates };
@@ -249,4 +249,114 @@ export function vatPosition(input: {
     receivableOre: Math.max(openPositionOre, 0),
     payableOre: Math.max(-openPositionOre, 0),
   };
+}
+
+export function remainingInventoryCost(product: {
+  quantity: number;
+  remainingQuantity: number;
+  purchasePriceOre: number;
+  purchaseShippingOre: number;
+}) {
+  if (!Number.isSafeInteger(product.quantity) || product.quantity <= 0 ||
+      !Number.isSafeInteger(product.remainingQuantity) || product.remainingQuantity < 0 ||
+      product.remainingQuantity > product.quantity) throw new Error("Inventory quantities are invalid.");
+  safeMoney(product.purchasePriceOre, "Purchase unit price");
+  safeMoney(product.purchaseShippingOre, "Purchase shipping");
+  const soldQuantity = product.quantity - product.remainingQuantity;
+  const allocatedToSales = Number(
+    (BigInt(product.purchaseShippingOre) * BigInt(soldQuantity)) / BigInt(product.quantity),
+  );
+  return safeMoney(
+    product.purchasePriceOre * product.remainingQuantity + product.purchaseShippingOre - allocatedToSales,
+    "Remaining inventory cost",
+  );
+}
+
+export function analyticsDateRange(period: AnalyticsPeriod, today: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new Error("Analytics date is invalid.");
+  if (period === "ALL") return { since: null, through: null };
+  const parsed = new Date(`${today}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== today) throw new Error("Analytics date is invalid.");
+  if (period === "YTD") return { since: `${parsed.getUTCFullYear()}-01-01`, through: today };
+  parsed.setUTCDate(parsed.getUTCDate() - (period === "30D" ? 29 : 89));
+  return { since: parsed.toISOString().slice(0, 10), through: today };
+}
+
+export function calendarDateInTimeZone(now: Date, timeZone = "Europe/Copenhagen") {
+  if (Number.isNaN(now.getTime())) throw new Error("Current date is invalid.");
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
+  const year = part("year"); const month = part("month"); const day = part("day");
+  if (!year || !month || !day) throw new Error("Unable to resolve the current calendar date.");
+  return `${year}-${month}-${day}`;
+}
+
+export function calculateProfit(input: {
+  revenueOre: number;
+  costBasisOre: number;
+  feeOre?: number;
+  promotedFeeOre?: number;
+  shippingOre?: number;
+  otherCostsOre?: number;
+}) {
+  const revenueOre = safeMoney(input.revenueOre, "Revenue");
+  const costBasisOre = safeMoney(input.costBasisOre, "Cost basis");
+  const feeOre = safeMoney(input.feeOre ?? 0, "Marketplace fees");
+  const promotedFeeOre = safeMoney(input.promotedFeeOre ?? 0, "Promoted fees");
+  const shippingOre = safeMoney(input.shippingOre ?? 0, "Sale shipping");
+  const otherCostsOre = safeMoney(input.otherCostsOre ?? 0, "Other sale costs");
+  const tradingCostsOre = safeMoney(costBasisOre + feeOre + promotedFeeOre + shippingOre + otherCostsOre, "Trading costs");
+  return { revenueOre, costBasisOre, feeOre, promotedFeeOre, shippingOre, otherCostsOre,
+    tradingCostsOre, tradingProfitOre: revenueOre - tradingCostsOre };
+}
+
+export function calculateOperatingResult(input: {
+  tradingProfitOre: number;
+  ordinaryExpensesOre: number;
+  subscriptionPaymentsOre: number;
+}) {
+  const ordinaryExpensesOre = safeMoney(input.ordinaryExpensesOre, "Ordinary expenses");
+  const subscriptionPaymentsOre = safeMoney(input.subscriptionPaymentsOre, "Subscription payments");
+  const operatingExpensesOre = safeMoney(ordinaryExpensesOre + subscriptionPaymentsOre, "Operating expenses");
+  return { ordinaryExpensesOre, subscriptionPaymentsOre, operatingExpensesOre,
+    netProfitOre: input.tradingProfitOre - operatingExpensesOre };
+}
+
+export function calculateProfitCalculator(input: {
+  purchasePriceOre: number;
+  salePriceOre: number;
+  marketplaceFeeBps: number;
+  promotedFeeBps: number;
+  shippingOre: number;
+  otherCostsOre: number;
+  targetRoiBps: number;
+}) {
+  const purchasePriceOre = safeMoney(input.purchasePriceOre, "Purchase price");
+  const salePriceOre = safeMoney(input.salePriceOre, "Sale price");
+  const shippingOre = safeMoney(input.shippingOre, "Shipping");
+  const otherCostsOre = safeMoney(input.otherCostsOre, "Other costs");
+  for (const [label, value] of [["Marketplace fee", input.marketplaceFeeBps], ["Promoted fee", input.promotedFeeBps], ["Target ROI", input.targetRoiBps]] as const) {
+    if (!Number.isSafeInteger(value) || value < 0 || value > 10_000) throw new Error(`${label} is invalid.`);
+  }
+  const combinedFeeBps = input.marketplaceFeeBps + input.promotedFeeBps;
+  if (combinedFeeBps >= 10_000) throw new Error("Combined fees must be below 100%.");
+  const percentageFee = (amountOre: number, bps: number) => Number((BigInt(amountOre) * BigInt(bps) + 5_000n) / 10_000n);
+  const marketplaceFeeOre = percentageFee(salePriceOre, input.marketplaceFeeBps);
+  const promotedFeeOre = percentageFee(salePriceOre, input.promotedFeeBps);
+  const feeOre = safeMoney(marketplaceFeeOre + promotedFeeOre, "Percentage fees");
+  const profitOre = salePriceOre - purchasePriceOre - feeOre - shippingOre - otherCostsOre;
+  const fixedCostsOre = purchasePriceOre + shippingOre + otherCostsOre;
+  const clearsFixedCosts = (candidateOre: number) => candidateOre - percentageFee(candidateOre, input.marketplaceFeeBps) -
+    percentageFee(candidateOre, input.promotedFeeBps) >= fixedCostsOre;
+  let low = 0; let high = Math.max(1, fixedCostsOre);
+  while (!clearsFixedCosts(high)) high *= 2;
+  while (low < high) { const middle = Math.floor((low + high) / 2); if (clearsFixedCosts(middle)) high = middle; else low = middle + 1; }
+  const breakEvenOre = low;
+  const proceedsAfterFeesOre = salePriceOre - marketplaceFeeOre - promotedFeeOre - shippingOre - otherCostsOre;
+  const maxPurchaseOre = Math.max(0, Number(
+    (BigInt(Math.max(0, proceedsAfterFeesOre)) * 10_000n) / BigInt(10_000 + input.targetRoiBps),
+  ));
+  return { marketplaceFeeOre, promotedFeeOre, feeOre, profitOre, breakEvenOre, maxPurchaseOre };
 }

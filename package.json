@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --experimental-strip-types --test tests/reverlo.test.mjs tests/ebay-oauth.test.mjs tests/tracker.test.mjs tests/tracker-expenses.test.mjs tests/tracker-import.test.mjs tests/tracker-v2.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test tests/reverlo.test.mjs tests/ebay-oauth.test.mjs tests/tracker.test.mjs tests/tracker-expenses.test.mjs tests/tracker-import.test.mjs tests/tracker-v2.test.mjs tests/tracker-quality.test.mjs",
     "ebay:oauth": "node scripts/ebay-oauth.mjs",
     "ebay:oauth:verify": "node scripts/ebay-oauth.mjs --verify",
     "tracker:import": "node scripts/import-reselltrack.mjs",

@@ -15,16 +15,16 @@ export function trackerDb() {
 }
 
 export function trackerUnavailable() {
-  return Response.json({ error: "Tracker storage is not initialized yet. Apply the private tracker D1 migration first." }, { status: 503 });
+  return noStoreJson({ error: "Tracker storage is not initialized yet. Apply the private tracker D1 migration first.", errorCode: "TRACKER_STORAGE_UNAVAILABLE" }, { status: 503 });
 }
 
-export function trackerError(error: unknown, fallback: string) {
+export function trackerError(error: unknown, fallback: string, errorCode = "TRACKER_REQUEST_FAILED") {
   const message = error instanceof Error ? error.message : "";
-  if (message.includes("no such table") || message.includes("tracker_products") || message.includes("tracker_transactions") ||
-      message.includes("tracker_expenses") || message.includes("tracker_subscriptions") ||
-      message.includes("tracker_subscription_payments") || message.includes("tracker_vat_settlements")) return trackerUnavailable();
+  if (/no such table:\s*(?:main\.)?tracker_(?:products|transactions|expenses|subscriptions|subscription_payments|vat_settlements)\b/i.test(message)) {
+    return trackerUnavailable();
+  }
   console.error("Reverlo tracker request failed", { message: message.slice(0, 300) });
-  return Response.json({ error: fallback }, { status: 500 });
+  return noStoreJson({ error: fallback, errorCode }, { status: 500 });
 }
 
 export function noStoreJson(value: unknown, init?: ResponseInit) {
