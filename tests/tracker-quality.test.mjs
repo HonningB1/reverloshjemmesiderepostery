@@ -302,6 +302,22 @@ test("analytics ranges are inclusive, UTC-stable and exclude future records", ()
   assert.equal(calendarDateInTimeZone(new Date("2026-08-21T22:30:00Z")), "2026-08-22");
 });
 
+test("analytics product selection SQL executes against the tracker D1 schema", async () => {
+  const db = new DatabaseSync(":memory:");
+  for (const migration of [
+    "drizzle/0005_private_reselling_tracker.sql",
+    "drizzle/0007_tracker_expenses_subscriptions.sql",
+    "drizzle/0008_tracker_vat_and_transaction_editing.sql",
+    "drizzle/0009_tracker_detached_subscription_payments.sql",
+    "drizzle/0012_tracker_purchase_context_and_subscription_vat.sql",
+  ]) db.exec(await source(migration));
+  const analytics = await source("app/api/track/analytics/route.ts");
+  const match = analytics.match(/const productSelect = `([\s\S]*?)`;/);
+  assert.ok(match, "Analytics must expose its product selection SQL");
+  assert.doesNotThrow(() => db.prepare(`SELECT ${match[1]} FROM tracker_products`).all());
+  db.close();
+});
+
 test("Overview and Analytics ALL use the same event scope and accounting totals", async () => {
   const [overview, analytics] = await Promise.all([source("app/api/track/overview/route.ts"), source("app/api/track/analytics/route.ts")]);
   for (const table of ["tracker_transactions", "tracker_expenses", "tracker_subscription_payments"]) {
