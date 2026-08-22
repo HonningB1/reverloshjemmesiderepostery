@@ -210,10 +210,10 @@ function vatBadges(transaction: TrackerTransaction, t: (key: string) => string) 
   return badges;
 }
 
-function TransactionRow({ transaction, onEdit, onDelete }: {
+export function TransactionRow({ transaction, onEdit, onDelete }: {
   transaction: TrackerTransaction; onEdit: () => void; onDelete: () => void;
 }) {
-  const { t } = useTrackerI18n();
+  const { t, money, date, percent } = useTrackerI18n();
   const context = effectiveTransactionContext(transaction.transactionContext, transaction.isB2b);
   const privateTransaction = context === "PRIVATE";
   const isSale = transaction.type === "SALE";

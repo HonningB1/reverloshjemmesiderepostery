@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { renderToStaticMarkup } from "react-dom/server";
 import { effectiveTransactionContextSql } from "../lib/tracker-context.ts";
 import ts from "typescript";
 import {
@@ -12,6 +14,7 @@ import { trackerDa, trackerEn } from "../app/track/translations.ts";
 
 const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
+const projectRequire = createRequire(import.meta.url);
 const renderContextSql = (sql) => sql.replace(/\$\{effectiveTransactionContextSql\("([^"]+)"(?:, "([^"]+)")?\)\}/g,
   (_match, contextColumn, isB2bColumn) => effectiveTransactionContextSql(contextColumn, isB2bColumn));
 const sale = (overrides = {}) => ({ id: "sale-a", quantity: 1, revenueOre: 150_000, feeOre: 0,
@@ -317,6 +320,38 @@ test("analytics product selection SQL executes against the tracker D1 schema", a
   assert.ok(match, "Analytics must expose its product selection SQL");
   assert.doesNotThrow(() => db.prepare(`SELECT ${renderContextSql(match[1])} FROM tracker_products`).all());
   db.close();
+});
+
+test("a populated transaction row executes its client render path with formatters", async () => {
+  const sourceText = await source("app/track/TrackerTransactions.tsx");
+  const compiled = ts.transpileModule(sourceText, {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const compiledModule = { exports: {} };
+  const requireForRow = (specifier) => {
+    if (specifier === "react") return { useEffect() {}, useMemo(callback) { return callback(); }, useState(value) { return [value, () => {}]; } };
+    if (specifier === "react/jsx-runtime") return projectRequire(specifier);
+    if (specifier === "./i18n") return { useTrackerI18n: () => ({
+      t: (value) => value, money: (value) => `DKK ${value}`, date: (value) => value, percent: (value, total) => `${value}/${total}`,
+    }) };
+    if (specifier.includes("tracker-context")) return { effectiveTransactionContext: () => "PRIVATE" };
+    return {};
+  };
+  new Function("exports", "require", "module", compiled)(compiledModule.exports, requireForRow, compiledModule);
+  const transaction = {
+    id: "legacy-sale", productId: "product", productName: "Legacy item", type: "SALE", quantity: 1,
+    unitPriceOre: 1_000, shippingOre: 0, supplier: null, platform: "eBay", feeOre: 0, promotedFeeOre: 0, otherCostsOre: 0,
+    costBasisOre: 600, revenueOre: 1_000, totalCostsOre: 600, netProfitOre: 400, operationalRevenueOre: 1_000,
+    operationalCostBasisOre: 600, operationalTotalCostsOre: 600, operationalProfitOre: 400, notes: "",
+    enteredUnitPriceOre: null, enteredShippingOre: null, enteredTotalPriceOre: null, priceMode: null, vatTreatment: null,
+    vatRateBps: 2_500, grossAmountOre: 1_000, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0,
+    supplierCountry: null, customerCountry: null, isB2b: null, transactionContext: null, vatIdReference: null,
+    occurredAt: "2026-08-23", createdAt: "2026-08-23T00:00:00Z", updatedAt: null,
+  };
+  const markup = renderToStaticMarkup(compiledModule.exports.TransactionRow({ transaction, onEdit() {}, onDelete() {} }));
+  assert.match(markup, /Legacy item/);
+  assert.match(markup, /DKK 1000/);
+  assert.match(markup, /2026-08-23/);
 });
 
 test("Overview and Analytics ALL use the same event scope and accounting totals", async () => {
