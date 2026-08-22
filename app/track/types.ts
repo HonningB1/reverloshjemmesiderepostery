@@ -207,3 +207,16 @@ export type ExpensesData = {
     activeSubscriptions: number;
   };
 };
+
+export type EmailImportStatus = "RECEIVED" | "PROCESSING" | "NEEDS_REVIEW" | "READY" | "IMPORTED" | "DUPLICATE" | "REJECTED" | "FAILED";
+export type TrackerEmailImportItem = { id: string; emailImportId: string; position: number; parsed: Record<string, unknown>; importedProductId: string | null; importedTransactionId: string | null };
+export type TrackerEmailImport = {
+  id: string; status: EmailImportStatus; messageId: string | null; originalSender: string; forwardedBy: string; recipient: string; subject: string;
+  emailDate: string | null; receivedAt: string; textBody: string; htmlBody: string; attachments: Array<{ name: string; contentType: string; size: number | null }>;
+  parsed: { supplier: string | null; supplierSource: string | null; orderNumber: string | null; purchaseDate: string | null; currency: string | null;
+    subtotal: { minor: number; currency: string } | null; shipping: { minor: number; currency: string } | null; discount: { minor: number; currency: string } | null;
+    total: { minor: number; currency: string } | null; vatAmount: { minor: number; currency: string } | null; vatRateBps: number | null; issues: string[]; textPreview: string };
+  review: { supplier: string; purchaseDate: string; fxRate: string; items: Array<{ name: string; quantity: number; unitPriceOre: number | null; shippingOre: number | null;
+    supplierCountry: string; priceMode: string; vatTreatment: string; vatRateBps: number | null; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null }> };
+  items: TrackerEmailImportItem[]; errorCode: string | null; importedAt: string | null; createdAt: string; updatedAt: string;
+};

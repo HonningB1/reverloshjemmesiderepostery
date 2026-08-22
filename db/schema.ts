@@ -263,3 +263,36 @@ export const trackerSubscriptionPayments = sqliteTable(
     check("tracker_subscription_payments_amount_positive", sql`${table.amountOre} > 0`),
   ],
 );
+
+export const trackerEmailImports = sqliteTable(
+  "tracker_email_imports",
+  {
+    id: text("id").primaryKey(),
+    status: text("status", { enum: ["RECEIVED", "PROCESSING", "NEEDS_REVIEW", "READY", "IMPORTED", "DUPLICATE", "REJECTED", "FAILED"] }).notNull(),
+    sourceFingerprint: text("source_fingerprint").notNull(),
+    messageId: text("message_id"), orderKey: text("order_key"), originalSender: text("original_sender").notNull().default(""),
+    forwardedBy: text("forwarded_by").notNull().default(""), recipient: text("recipient").notNull().default(""), subject: text("subject").notNull().default(""),
+    emailDate: text("email_date"), receivedAt: text("received_at").notNull().default(sql`CURRENT_TIMESTAMP`), textBody: text("text_body").notNull().default(""),
+    htmlBody: text("html_body").notNull().default(""), attachmentsJson: text("attachments_json").notNull().default("[]"), parsedJson: text("parsed_json").notNull().default("{}"),
+    reviewJson: text("review_json").notNull().default("{}"), parserVersion: text("parser_version").notNull().default("generic-v1"), errorCode: text("error_code"),
+    importedAt: text("imported_at"), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("idx_tracker_email_imports_fingerprint").on(table.sourceFingerprint),
+    uniqueIndex("idx_tracker_email_imports_message_id").on(table.messageId).where(sql`${table.messageId} IS NOT NULL`),
+    uniqueIndex("idx_tracker_email_imports_order_key").on(table.orderKey).where(sql`${table.orderKey} IS NOT NULL`),
+    index("idx_tracker_email_imports_status_received").on(table.status, table.receivedAt),
+  ],
+);
+
+export const trackerEmailImportItems = sqliteTable(
+  "tracker_email_import_items",
+  {
+    id: text("id").primaryKey(), emailImportId: text("email_import_id").notNull().references(() => trackerEmailImports.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(), parsedJson: text("parsed_json").notNull().default("{}"),
+    importedProductId: text("imported_product_id").references(() => trackerProducts.id, { onDelete: "set null" }),
+    importedTransactionId: text("imported_transaction_id").references(() => trackerTransactions.id, { onDelete: "set null" }),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [index("idx_tracker_email_import_items_import").on(table.emailImportId, table.position)],
+);

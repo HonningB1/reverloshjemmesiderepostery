@@ -226,7 +226,7 @@ test("Starlink Mini regression preserves economic profit and VAT receivable", ()
 
 test("English and Danish translation keys are complete and tracker literals use i18n", async () => {
   assert.deepEqual(Object.keys(trackerEn).sort(), Object.keys(trackerDa).sort());
-  const files = ["TrackerApp.tsx", "TrackerExpenses.tsx", "TrackerTransactions.tsx", "TrackerVat.tsx"];
+  const files = ["TrackerApp.tsx", "TrackerEmailImports.tsx", "TrackerExpenses.tsx", "TrackerTransactions.tsx", "TrackerVat.tsx"];
   for (const file of files) {
     const content = await source(`app/track/${file}`);
     const tree = ts.createSourceFile(file, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -250,7 +250,7 @@ test("English and Danish translation keys are complete and tracker literals use 
       .map((match) => match[1].trim()).filter(Boolean).filter((value) => !/^(DKK|ALL|ROI|B2B|A|B|C|ISO 3166-1)$/.test(value));
     assert.deepEqual(directText, [], `${file} contains obvious hardcoded user-facing text`);
   }
-  const apiFiles = ["analytics", "expenses", "inventory", "overview", "subscription-payments", "subscriptions", "transactions", "vat"];
+  const apiFiles = ["analytics", "email-imports", "email-ingest", "expenses", "inventory", "overview", "subscription-payments", "subscriptions", "transactions", "vat"];
   const apiSources = await Promise.all(apiFiles.map((file) => source(`app/api/track/${file}/route.ts`)));
   apiSources.push(await source("lib/tracker.ts"));
   for (const [index, content] of apiSources.entries()) {

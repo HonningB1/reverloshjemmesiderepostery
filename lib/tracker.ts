@@ -20,7 +20,7 @@ export function trackerUnavailable() {
 
 export function trackerError(error: unknown, fallback: string, errorCode = "TRACKER_REQUEST_FAILED") {
   const message = error instanceof Error ? error.message : "";
-  if (/no such table:\s*(?:main\.)?tracker_(?:products|transactions|expenses|subscriptions|subscription_payments|vat_settlements)\b/i.test(message)) {
+  if (/no such table:\s*(?:main\.)?tracker_(?:products|transactions|expenses|subscriptions|subscription_payments|vat_settlements|email_imports|email_import_items)\b/i.test(message)) {
     return trackerUnavailable();
   }
   console.error("Reverlo tracker request failed", { message: message.slice(0, 300) });
@@ -107,6 +107,14 @@ export function subscriptionPaymentId() {
 
 export function vatSettlementId() {
   return `vatset_${crypto.randomUUID()}`;
+}
+
+export function emailImportId() {
+  return `emailimp_${crypto.randomUUID()}`;
+}
+
+export function emailImportItemId() {
+  return `emailitem_${crypto.randomUUID()}`;
 }
 
 export function allocatedShipping(totalShippingOre: number, totalQuantity: number, soldBefore: number, soldQuantity: number) {

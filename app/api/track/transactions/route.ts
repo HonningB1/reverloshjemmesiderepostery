@@ -1,6 +1,7 @@
 import { calculateVatAmounts, recalculateProductSales, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
-  noStoreJson, optionalTrackerMoney, productId, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
+  noStoreJson, optionalTrackerMoney, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
   trackerError, trackerInteger, trackerPriceMode, trackerUnavailable, trackerVatTreatment, transactionId,
 } from "../../../../lib/tracker";
 import type { TrackerProduct, TrackerStatus, TrackerTransaction, TransactionType } from "../../../track/types";
@@ -112,32 +113,11 @@ export async function POST(request: Request) {
     }
 
     if (payload.type === "PURCHASE") {
-      const name = strictTrackerText(payload.name, 160, true);
-      const supplier = strictTrackerText(payload.supplier ?? "", 120);
-      const supplierCountry = country(payload.supplierCountry);
-      const accounting = parseAccounting(payload, "PURCHASE", quantity, enteredUnitPriceOre, shippingOre);
-      if (!name || supplier === null || supplierCountry === null || !accounting) {
-        return noStoreJson({ error: "The purchase or VAT details contain invalid values.", errorCode: "INVALID_PURCHASE" }, { status: 400 });
-      }
-      const newProductId = productId();
-      const id = transactionId();
-      const amounts = accounting.amounts;
-      await db.batch([
-        db.prepare(`INSERT INTO tracker_products
-          (id, name, quantity, remaining_quantity, purchase_price_ore, purchase_shipping_ore, supplier, purchase_date, status, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'IN_STOCK', ?)`)
-          .bind(newProductId, name, quantity, quantity, amounts.unitPriceOre, amounts.shippingOre, supplier, occurredAt, notes),
-        db.prepare(`INSERT INTO tracker_transactions
-          (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, cost_basis_ore, total_costs_ore,
-           notes, entered_unit_price_ore, entered_shipping_ore, price_mode, vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore, output_vat_ore,
-           deductible_vat_ore, supplier_country, occurred_at, updated_at)
-          VALUES (?, ?, 'PURCHASE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
-          .bind(id, newProductId, quantity, amounts.unitPriceOre, amounts.shippingOre, supplier || null,
-            amounts.economicPurchaseCostOre, amounts.economicPurchaseCostOre, notes, enteredUnitPriceOre, shippingOre, accounting.priceMode,
-            accounting.vatTreatment, accounting.vatRateBps, amounts.grossAmountOre, amounts.inputVatOre,
-            amounts.outputVatOre, amounts.deductibleVatOre, supplierCountry || null, occurredAt),
-      ]);
-      const transaction = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.id = ?`).bind(id).first<TrackerTransaction>();
+      const purchase = parseTrackerPurchaseInput(payload);
+      if (!purchase) return noStoreJson({ error: "The purchase or VAT details contain invalid values.", errorCode: "INVALID_PURCHASE" }, { status: 400 });
+      const created = createTrackerPurchaseStatements(db, purchase);
+      await db.batch(created.statements);
+      const transaction = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.id = ?`).bind(created.transactionId).first<TrackerTransaction>();
       return noStoreJson({ transaction }, { status: 201 });
     }
 

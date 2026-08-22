@@ -131,6 +131,23 @@ export const trackerDa = {
   "INVALID_INVENTORY": "Lagervaren indeholder ugyldige værdier.", "INVENTORY_NOT_FOUND": "Lagervaren findes ikke længere.",
   "EDIT_PURCHASE_WITH_VAT": "Redigér momsbehandlede købsbeløb under Transaktioner, så moms og kostpris genberegnes samlet.",
   "INVALID_TRANSACTION_TYPE": "Transaktionstypen skal være køb eller salg.",
+  "Email imports": "Mailimport", "Email import": "Mailimport", "Email line item": "E-mail-linje", "Exchange-rate note": "Valutakursnote",
+  "Currency": "Valuta", "Unknown": "Ukendt", "Total": "Total", "Subtotal": "Delsum", "Discount": "Rabat", "VAT": "Moms", "Parsed line items": "Fortolkede varelinjer", "Line {number}": "Linje {number}",
+  "Source": "Kilde", "Message ID": "Besked-id", "Attachments": "Vedhæftninger", "Email": "E-mail", "Order": "Ordre", "Lines": "Linjer", "Review": "Gennemgang",
+  "Forwarded by": "Videresendt af", "Line items": "Varelinjer", "Loading email imports": "Indlæser mailimporter", "Order number": "Ordrenummer",
+  "Original email": "Oprindelig e-mail", "Original sender": "Oprindelig afsender", "Purchase email": "Købs-e-mail", "Review first": "Gennemgå først",
+  "Review purchase lines": "Gennemgå købslinjer", "Choose price basis": "Vælg prisgrundlag", "Received": "Modtaget", "Processing": "Behandler",
+  "Needs review": "Kræver gennemgang", "Ready": "Klar", "Imported": "Importeret", "Duplicate": "Dublet", "Rejected": "Afvist", "Failed": "Mislykkedes",
+  "Reject import": "Afvis import", "Import purchase": "Importér køb", "Importing…": "Importerer…", "Mark ready": "Markér som klar",
+  "Order number unavailable": "Ordrenummer ikke fundet", "No email imports": "Ingen mailimporter", "No readable text body": "Ingen læsbar tekst i e-mailen",
+  "No attachments": "Ingen vedhæftninger", "Unnamed attachment": "Ikke-navngivet vedhæftning", "Required for non-DKK orders": "Påkrævet for ordrer i anden valuta",
+  "Purchase emails are parsed conservatively and require review before inventory changes.": "Købs-e-mails fortolkes konservativt og kræver gennemgang, før lageret ændres.",
+  "Forward an order confirmation to purchases@reverlo.nl to create a reviewable purchase import.": "Videresend en ordrebekræftelse til purchases@reverlo.nl for at oprette en købsklar mailimport.",
+  "EMAIL_INGEST_UNAUTHORIZED": "Uautoriseret e-mailindtag.", "EMAIL_INGEST_TOO_LARGE": "E-mail-payloaden er for stor.", "EMAIL_INGEST_INVALID": "E-mail-payloaden er ugyldig.",
+  "EMAIL_INGEST_FAILED": "Købs-e-mailen kunne ikke modtages.", "EMAIL_IMPORT_INVALID": "Mailimportanmodningen er ugyldig.", "EMAIL_IMPORT_NOT_FOUND": "Mailimporten findes ikke længere.",
+  "EMAIL_IMPORT_ALREADY_IMPORTED": "Denne mailimport er allerede importeret.", "EMAIL_IMPORT_NOT_READY": "Gennemfør gennemgangen før købet importeres.",
+  "EMAIL_IMPORT_REVIEW_INCOMPLETE": "Gennemgangen er ufuldstændig, eller momsoplysningerne er ugyldige.", "EMAIL_IMPORTS_LOAD_FAILED": "Mailimporterne kunne ikke indlæses.",
+  "EMAIL_IMPORT_UPDATE_FAILED": "Mailimporten kunne ikke opdateres.",
 } as const;
 
 export type TrackerTranslationKey = keyof typeof trackerDa;

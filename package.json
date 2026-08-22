@@ -9,18 +9,22 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --experimental-strip-types --test tests/reverlo.test.mjs tests/ebay-oauth.test.mjs tests/tracker.test.mjs tests/tracker-expenses.test.mjs tests/tracker-import.test.mjs tests/tracker-v2.test.mjs tests/tracker-quality.test.mjs tests/tracker-chart.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test tests/reverlo.test.mjs tests/ebay-oauth.test.mjs tests/tracker.test.mjs tests/tracker-expenses.test.mjs tests/tracker-import.test.mjs tests/tracker-v2.test.mjs tests/tracker-quality.test.mjs tests/tracker-chart.test.mjs tests/tracker-email-import.test.mjs",
     "ebay:oauth": "node scripts/ebay-oauth.mjs",
     "ebay:oauth:verify": "node scripts/ebay-oauth.mjs --verify",
     "tracker:import": "node scripts/import-reselltrack.mjs",
     "tracker:repair-starlink-vat": "node scripts/repair-starlink-vat.mjs",
+    "email:purchase:dev": "wrangler dev --config email-worker/wrangler.toml",
+    "email:purchase:deploy": "wrangler deploy --config email-worker/wrangler.toml",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "postal-mime": "^3.0.0",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "react-loading-skeleton": "3.5.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
