@@ -134,6 +134,7 @@ export const trackerDa = {
   "Email imports": "Mailimport", "Email import": "Mailimport", "Email line item": "E-mail-linje", "Exchange-rate note": "Valutakursnote",
   "Currency": "Valuta", "Unknown": "Ukendt", "Total": "Total", "Subtotal": "Delsum", "Discount": "Rabat", "VAT": "Moms", "Parsed line items": "Fortolkede varelinjer", "Line {number}": "Linje {number}",
   "Source": "Kilde", "Message ID": "Besked-id", "Attachments": "Vedhæftninger", "Email": "E-mail", "Order": "Ordre", "Lines": "Linjer", "Review": "Gennemgang",
+  "Source document amount": "Kildedokumentets beløb", "Not an accounting cost": "Ikke en regnskabskostpris",
   "Forwarded by": "Videresendt af", "Line items": "Varelinjer", "Loading email imports": "Indlæser mailimporter", "Order number": "Ordrenummer", "Receipt number": "Kvitteringsnummer", "Amount paid": "Betalt beløb", "Pages": "Sider", "Extracted characters": "Udtrukne tegn",
   "Original email": "Oprindelig e-mail", "Original sender": "Oprindelig afsender", "Purchase email": "Købs-e-mail", "Review first": "Gennemgå først",
   "Review purchase lines": "Gennemgå købslinjer", "Choose price basis": "Vælg prisgrundlag", "Received": "Modtaget", "Processing": "Behandler",

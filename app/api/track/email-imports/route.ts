@@ -9,6 +9,12 @@ const importSelect = `id, status, message_id AS messageId, original_sender AS or
   parsed_json AS parsedJson, review_json AS reviewJson, error_code AS errorCode, imported_at AS importedAt, created_at AS createdAt, updated_at AS updatedAt`;
 
 function json<T>(value: string, fallback: T): T { try { return JSON.parse(value) as T; } catch { return fallback; } }
+function sourceDocumentAmount(value: unknown) {
+  if (value === null || value === undefined) return null; if (!value || typeof value !== "object") return undefined; const row = value as Record<string, unknown>;
+  const minor = row.minor; const currency = cleanTrackerText(row.currency, 3)?.toUpperCase(); const source = cleanTrackerText(row.source, 320); const provenance = cleanTrackerText(row.provenance, 20); const kind = cleanTrackerText(row.kind, 20);
+  if (!Number.isSafeInteger(minor) || typeof minor !== "number" || minor < 0 || !currency || !["DKK", "EUR", "USD", "GBP", "SEK", "NOK"].includes(currency) || !["DOCUMENTED", "DERIVED", "UNKNOWN"].includes(provenance ?? "") || !["LINE_TOTAL", "UNIT_PRICE"].includes(kind ?? "")) return undefined;
+  return { minor, currency, source: source || null, provenance: provenance as "DOCUMENTED" | "DERIVED" | "UNKNOWN", kind: kind as "LINE_TOTAL" | "UNIT_PRICE" };
+}
 function parseReview(value: unknown, currency: string | null) {
   if (!value || typeof value !== "object") return null; const row = value as Record<string, unknown>;
   const supplier = cleanTrackerText(row.supplier, 120, true); const purchaseDate = strictTrackerText(row.purchaseDate, 10, true); const fxRate = cleanTrackerText(row.fxRate, 120) ?? ""; const reviewCurrency = cleanTrackerText(row.currency ?? currency ?? "", 3)?.toUpperCase() ?? "";
@@ -22,12 +28,13 @@ function parseReview(value: unknown, currency: string | null) {
     if (!item || typeof item !== "object") return null; const input = item as Record<string, unknown>;
     if (input.unitPriceOre === null || input.unitPriceOre === undefined || input.unitPriceOre === "" ||
         input.shippingOre === null || input.shippingOre === undefined || input.shippingOre === "") return null;
+    const sourceAmount = sourceDocumentAmount(input.sourceDocumentAmount); if (sourceAmount === undefined) return null;
     const purchase = parseTrackerPurchaseInput({ name: input.name, quantity: input.quantity, unitPriceOre: input.unitPriceOre, shippingOre: input.shippingOre,
       supplier, supplierCountry: input.supplierCountry, occurredAt: purchaseDate, notes: input.notes ?? "", priceMode: input.priceMode,
       vatTreatment: input.vatTreatment, vatRateBps: input.vatRateBps, inputVatOre: input.inputVatOre, outputVatOre: input.outputVatOre, deductibleVatOre: input.deductibleVatOre });
     if (!purchase) return null;
     const sourceItemId = strictTrackerText(input.sourceItemId, 100);
-    items.push({ sourceItemId: sourceItemId || null, name: purchase.name, quantity: purchase.quantity, unitPriceOre: purchase.unitPriceOre, shippingOre: purchase.shippingOre,
+    items.push({ sourceItemId: sourceItemId || null, sourceDocumentAmount: sourceAmount, name: purchase.name, quantity: purchase.quantity, unitPriceOre: purchase.unitPriceOre, shippingOre: purchase.shippingOre,
       supplierCountry: purchase.supplierCountry, priceMode: purchase.priceMode, vatTreatment: purchase.vatTreatment, vatRateBps: purchase.vatRateBps,
       inputVatOre: purchase.inputVatOre, outputVatOre: purchase.outputVatOre, deductibleVatOre: purchase.deductibleVatOre });
   }

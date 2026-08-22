@@ -93,6 +93,39 @@ Amount paid
   assert.equal(parsed.items.length, 1); assert.equal(parsed.items[0].name, "Goatify"); assert.equal(parsed.items[0].quantity, 1); assert.equal(parsed.items[0].lineTotal?.minor, 4499); assert.equal(parsed.items[0].unitAmount, null); assert.equal(parsed.issues.includes("NO_LINE_ITEMS"), false);
 });
 
+test("Goatify Stripe invoice and receipt reconcile net subtotal, references, and source EUR without creating DKK accounting values", () => {
+  const body = `Receipt from Goatify by MMax GmbH
+€44.99
+Paid August 17, 2026
+
+Receipt number   2572-0086
+Invoice number   4EAV72TW-0004
+
+Goatify
+
+Qty 1
+€44.99
+
+Total excluding tax
+€35.99
+
+VAT - Denmark (25% incl.)
+€9.00
+
+Total
+€44.99
+
+Amount paid
+€44.99`;
+  const parsed = parsePurchaseEmail({ from: "purchases@reverlo.nl", originalSender: "Goatify by MMax GmbH <invoice+statements@goatify.io>", originalSubject: "Your receipt from Goatify by MMax GmbH #2572-0086", subject: "Fwd: Your receipt from Goatify by MMax GmbH #2572-0086", textBody: body, attachments: [
+    { name: "Invoice-4EAV72TW-0004.pdf", contentType: "application/pdf", size: 100, extractionStatus: "EXTRACTED", text: "Invoice number 4EAV72TW-0004\nSubtotal\n€44.99\nVAT (25%)\n€9.00\nTotal\n€44.99" },
+    { name: "Receipt-2572-0086.pdf", contentType: "application/pdf", size: 100, extractionStatus: "EXTRACTED", text: "Receipt number 2572-0086\nInvoice number 4EAV72TW-0004\nGoatify\nQty 1\n€44.99\nTotal\n€44.99" },
+  ] });
+  assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.equal(parsed.purchaseDate, "2026-08-17"); assert.equal(parsed.receiptNumber, "2572-0086"); assert.equal(parsed.invoiceNumber, "4EAV72TW-0004"); assert.equal(parsed.currency, "EUR"); assert.equal(parsed.subtotal?.minor, 3599); assert.equal(parsed.vatAmount?.minor, 900); assert.equal(parsed.vatRateBps, 2500); assert.equal(parsed.total?.minor, 4499); assert.equal(parsed.amountPaid?.minor, 4499);
+  assert.equal(parsed.items.length, 1); assert.equal(parsed.items[0].name, "Goatify"); assert.equal(parsed.items[0].quantity, 1); assert.equal(parsed.items[0].lineTotal?.minor, 4499); assert.equal(parsed.conflicts.includes("CONFLICTING_INVOICE_NUMBER"), false); assert.equal(parsed.conflicts.includes("CONFLICTING_SUBTOTAL"), false);
+  const review = initialEmailPurchaseReview(parsed); assert.deepEqual(review.items[0].sourceDocumentAmount, { minor: 4499, currency: "EUR", source: "email_body", provenance: "DOCUMENTED", kind: "LINE_TOTAL" }); assert.equal(review.items[0].unitPriceOre, null); assert.equal(review.fxRate, ""); assert.equal(review.items[0].vatTreatment, "");
+});
+
 test("text-based PDF extraction feeds a single review line without OCR", async () => {
   const pdf = await extractPdfText(textPdf(["Invoice number: INV-100", "1 x Starlink Mini 1590,00 DKK", "Subtotal: 1590,00 DKK", "Total: 1590,00 DKK"]));
   assert.equal(pdf.extractionStatus, "EXTRACTED"); const parsed = parsePurchaseEmail({ from: "orders@example.com", subject: "", textBody: "", attachments: [{ name: "Invoice-INV-100.pdf", contentType: "application/pdf", size: 400, ...pdf }] });
