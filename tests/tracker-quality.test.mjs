@@ -48,6 +48,33 @@ test("sale edits, deletes, date changes and overselling recalculate the ledger",
   assert.throws(() => recalculateProductSales(product, [sale({ quantity: 5 })]), /sell more units/);
 });
 
+test("current inventory is purchase quantity minus sales across sales, edits and deletions", () => {
+  const product = { quantity: 3, purchasePriceOre: 100_000, purchaseShippingOre: 300 };
+  const firstSale = sale({ id: "first", quantity: 1, revenueOre: 150_000 });
+  const secondSale = sale({ id: "second", quantity: 2, revenueOre: 300_000, occurredAt: "2026-02-02" });
+  assert.equal(recalculateProductSales(product, []).remainingQuantity, 3);
+  assert.equal(recalculateProductSales(product, [firstSale]).remainingQuantity, 2);
+  assert.equal(recalculateProductSales(product, [firstSale, secondSale]).remainingQuantity, 0);
+  assert.throws(() => recalculateProductSales(product, [...[firstSale, secondSale], sale({ id: "oversold", quantity: 1 })]), /sell more units/);
+  assert.equal(recalculateProductSales(product, [secondSale]).remainingQuantity, 1, "deleting the one-unit sale restores stock");
+  assert.equal(recalculateProductSales(product, [firstSale, { ...secondSale, quantity: 1 }]).remainingQuantity, 1,
+    "editing a two-unit sale down to one restores stock");
+  assert.equal(recalculateProductSales(product, [{ ...firstSale, quantity: 2 }]).remainingQuantity, 1,
+    "editing a one-unit sale up to two reduces stock");
+});
+
+test("inventory UI defaults to current stock while preserving sold-out history and editable sales", async () => {
+  const [app, transactions, route] = await Promise.all([
+    source("app/track/TrackerApp.tsx"), source("app/track/TrackerTransactions.tsx"), source("app/api/track/transactions/route.ts"),
+  ]);
+  assert.match(app, /products\.filter\(\(product\) => product\.remainingQuantity > 0\)/);
+  assert.match(app, /t\("Show sold out"\)/);
+  assert.match(app, /t\(soldOut \? "Sold out" : statusKey\(product\.status\)\)/);
+  assert.match(transactions, /products\.filter\(\(product\) => product\.remainingQuantity > 0 \|\| product\.id === transaction\?\.productId\)/);
+  assert.match(route, /UPDATE tracker_products SET remaining_quantity = \?, status = \?/);
+  assert.match(route, /DELETE FROM tracker_transactions WHERE id = \?/);
+});
+
 test("purchase price, quantity and VAT treatment edits flow into inventory and every sale", () => {
   const gross = calculateVatAmounts({ type: "PURCHASE", quantity: 3, enteredUnitPriceOre: 125_000,
     enteredShippingOre: 0, priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 2_500 });
@@ -231,4 +258,14 @@ test("English and Danish translation keys are complete and tracker literals use 
     for (const code of errorCodes) assert.ok(code in trackerEn && code in trackerDa,
       `${apiFiles[index] ?? "lib/tracker.ts"} has an untranslated API error code: ${code}`);
   }
+});
+
+test("sale VAT customer type uses the shared form-field geometry", async () => {
+  const [transactions, styles] = await Promise.all([source("app/track/TrackerTransactions.tsx"), source("app/globals.css")]);
+  assert.match(transactions, /className="track-checkbox-field">\{t\("Customer type"\)\}/);
+  assert.match(transactions, /name="isB2b" type="checkbox" defaultChecked=\{Boolean\(transaction\?\.isB2b\)\}/);
+  assert.doesNotMatch(transactions, /label className="track-toggle-field" aria-label=\{t\("Business customer \(B2B\)"\)\}/);
+  assert.match(styles, /\.track-checkbox-field > \.track-checkbox-control \{[\s\S]*height: var\(--track-control-height\)/);
+  assert.match(styles, /\.track-checkbox-field > \.track-checkbox-control input \{[\s\S]*appearance: auto/);
+  assert.match(styles, /\.track-checkbox-field > \.track-checkbox-control:focus-within/);
 });
