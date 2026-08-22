@@ -29,12 +29,12 @@ function attachments(value: unknown) {
     if (!item || typeof item !== "object") return null; const row = item as Record<string, unknown>;
     const name = string(row.name ?? "", 240); const contentType = string(row.contentType ?? "", 120)?.toLowerCase();
     const size = typeof row.size === "number" && Number.isSafeInteger(row.size) && row.size >= 0 && row.size <= 25_000_000 ? row.size : null;
-    const sha256 = string(row.sha256 ?? "", 64); const text = string(row.text ?? "", MAX_ATTACHMENT_TEXT_CHARS); const extractionStatus = string(row.extractionStatus ?? "UNSUPPORTED", 20); const issue = string(row.issue ?? "", 120); const pages = typeof row.pages === "number" && Number.isSafeInteger(row.pages) && row.pages >= 0 && row.pages <= 100 ? row.pages : null;
+    const sha256 = string(row.sha256 ?? "", 64); const text = string(row.text ?? "", MAX_ATTACHMENT_TEXT_CHARS); const extractionStatus = string(row.extractionStatus ?? "UNSUPPORTED", 20); const issue = string(row.issue ?? "", 120); const pages = typeof row.pages === "number" && Number.isSafeInteger(row.pages) && row.pages >= 0 && row.pages <= 100 ? row.pages : null; const extractedChars = typeof row.extractedChars === "number" && Number.isSafeInteger(row.extractedChars) && row.extractedChars >= 0 && row.extractedChars <= MAX_ATTACHMENT_TEXT_CHARS ? row.extractedChars : null;
     if (name === null || contentType === null || sha256 === null || text === null || extractionStatus === null || issue === null ||
-        (sha256 && !/^[a-f0-9]{64}$/i.test(sha256)) || (text && contentType !== "application/pdf") ||
+        (sha256 && !/^[a-f0-9]{64}$/i.test(sha256)) || (text && contentType !== "application/pdf") || (extractedChars !== null && extractedChars !== text.length) ||
         !["EXTRACTED", "NO_TEXT", "UNSUPPORTED", "TOO_LARGE", "INVALID_PDF", "FAILED"].includes(extractionStatus)) return null;
     totalText += text.length; if (totalText > MAX_TOTAL_ATTACHMENT_TEXT_CHARS) return null;
-    result.push({ name, contentType, size, sha256: sha256 || null, text: text || "", extractionStatus: extractionStatus as EmailAttachment["extractionStatus"], issue: issue || null, pages });
+    result.push({ name, contentType, size, sha256: sha256 || null, text: text || "", extractionStatus: extractionStatus as EmailAttachment["extractionStatus"], issue: issue || null, pages, extractedChars });
   }
   return result;
 }

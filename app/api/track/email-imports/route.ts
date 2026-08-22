@@ -15,7 +15,7 @@ function parseReview(value: unknown, currency: string | null) {
   if (!supplier || !purchaseDate || !Array.isArray(row.items) || !row.items.length ||
       (reviewCurrency && !["DKK", "EUR", "USD", "GBP", "SEK", "NOK"].includes(reviewCurrency)) ||
       (reviewCurrency !== "DKK" && !/^\d{1,8}(?:[.,]\d{1,8})?$/.test(fxRate))) return null;
-  const orderNumber = cleanTrackerText(row.orderNumber ?? "", 120) ?? ""; const invoiceNumber = cleanTrackerText(row.invoiceNumber ?? "", 120) ?? "";
+  const orderNumber = cleanTrackerText(row.orderNumber ?? "", 120) ?? ""; const receiptNumber = cleanTrackerText(row.receiptNumber ?? "", 120) ?? ""; const invoiceNumber = cleanTrackerText(row.invoiceNumber ?? "", 120) ?? "";
   const documentTotals = row.documentTotals && typeof row.documentTotals === "object" ? Object.fromEntries(Object.entries(row.documentTotals as Record<string, unknown>).map(([key, item]) => [key, cleanTrackerText(item, 40) ?? ""])) : {};
   const items: EmailPurchaseReview["items"] = [];
   for (const item of row.items) {
@@ -31,7 +31,7 @@ function parseReview(value: unknown, currency: string | null) {
       supplierCountry: purchase.supplierCountry, priceMode: purchase.priceMode, vatTreatment: purchase.vatTreatment, vatRateBps: purchase.vatRateBps,
       inputVatOre: purchase.inputVatOre, outputVatOre: purchase.outputVatOre, deductibleVatOre: purchase.deductibleVatOre });
   }
-  return { supplier, purchaseDate, fxRate, orderNumber, invoiceNumber, currency: reviewCurrency, documentTotals, items } satisfies EmailPurchaseReview;
+  return { supplier, purchaseDate, fxRate, orderNumber, receiptNumber, invoiceNumber, currency: reviewCurrency, documentTotals, items } satisfies EmailPurchaseReview;
 }
 
 async function listImports(db: D1Database) {
@@ -81,7 +81,7 @@ export async function PATCH(request: Request) {
         const items = (await db.prepare("SELECT id, position FROM tracker_email_import_items WHERE email_import_id = ? ORDER BY position").bind(id).all<{ id: string; position: number }>()).results;
         const itemIds = new Set(items.map((item) => item.id)); if (review.items.some((item) => item.sourceItemId && !itemIds.has(item.sourceItemId))) throw new Error("Email-import review refers to an unknown line item.");
         const created = review.items.map((item) => createTrackerPurchaseStatements(db, parseTrackerPurchaseInput({ ...item, supplier: review.supplier, occurredAt: review.purchaseDate,
-          notes: `Email import ${id}${review.orderNumber ? ` · Order ${review.orderNumber}` : review.invoiceNumber ? ` · Invoice ${review.invoiceNumber}` : ""}` })!));
+          notes: `Email import ${id}${review.orderNumber ? ` · Order ${review.orderNumber}` : ""}${review.receiptNumber ? ` · Receipt ${review.receiptNumber}` : ""}${review.invoiceNumber ? ` · Invoice ${review.invoiceNumber}` : ""}` })!));
         await db.batch([
           ...created.flatMap((purchase) => purchase.statements),
           ...created.map((purchase, index) => review.items[index].sourceItemId

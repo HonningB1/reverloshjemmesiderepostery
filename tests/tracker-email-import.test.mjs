@@ -43,7 +43,54 @@ test("parser never invents supplier country or VAT treatment", () => {
 
 test("forwarded Gmail mail preserves the original sender name and original receipt reference", () => {
   const parsed = parsePurchaseEmail({ from: "me@gmail.com", subject: "Fwd: Your receipt from Goatify by MMax GmbH #2572-0086", textBody: "---------- Videresendt mail ---------\nFra: Goatify by MMax GmbH <invoice+statements@goatify.io>\nEmne: Your receipt from Goatify by MMax GmbH #2572-0086\n\nThank you", attachments: [] });
-  assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.equal(parsed.originalSenderEmail, "invoice+statements@goatify.io"); assert.equal(parsed.invoiceNumber, "2572-0086"); assert.notEqual(parsed.supplier, "gmail.com");
+  assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.equal(parsed.originalSenderEmail, "invoice+statements@goatify.io"); assert.equal(parsed.receiptNumber, "2572-0086"); assert.notEqual(parsed.supplier, "gmail.com");
+});
+
+test("nested forwarded Stripe receipt uses the deepest original sender and parses body evidence before PDFs", () => {
+  const parsed = parsePurchaseEmail({ from: "purchases@reverlo.nl", originalSender: "Robert Tacchini <roberttacchini@gmail.com>", subject: "Fwd: Fwd: Your receipt from Goatify by MMax GmbH #2572-0086", textBody: `---------- Videresendt mail ---------
+Fra: Robert Tacchini <roberttacchini@gmail.com>
+Dato: lør. 22. aug. 2026 kl. 20.01
+Emne: Fwd: Your receipt from Goatify by MMax GmbH #2572-0086
+Til: <purchases@reverlo.nl>
+
+---------- Videresendt mail ---------
+Fra: Goatify by MMax GmbH <invoice+statements@goatify.io>
+Dato: man. 17. aug. 2026 kl. 19.31
+Emne: Your receipt from Goatify by MMax GmbH #2572-0086
+Til: <roberttacchini@gmail.com>
+
+Receipt from Goatify by MMax GmbH
+€44.99
+Paid August 17, 2026
+
+Receipt number   2572-0086
+Invoice number   4EAV72TW-0004
+Payment method   Mastercard - 5971
+
+Receipt #2572-0086
+
+Aug 17–Sep 16, 2026
+
+Goatify
+
+Qty 1
+€44.99
+
+Total excluding tax
+€35.99
+
+VAT - Denmark (25% incl.)
+€9.00
+
+Total
+€44.99
+
+Amount paid
+€44.99`, attachments: [] });
+  assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.notEqual(parsed.supplier, "Robert Tacchini"); assert.notEqual(parsed.supplier, "gmail.com");
+  assert.equal(parsed.originalSenderName, "Goatify by MMax GmbH"); assert.equal(parsed.originalSenderEmail, "invoice+statements@goatify.io"); assert.equal(parsed.originalSubject, "Your receipt from Goatify by MMax GmbH #2572-0086"); assert.equal(parsed.forwardedChain.length, 2);
+  assert.equal(parsed.receiptNumber, "2572-0086"); assert.equal(parsed.invoiceNumber, "4EAV72TW-0004"); assert.equal(parsed.currency, "EUR"); assert.equal(parsed.purchaseDate, "2026-08-17"); assert.equal(parsed.subtotal?.minor, 3599); assert.equal(parsed.vatAmount?.minor, 900); assert.equal(parsed.vatRateBps, 2500); assert.equal(parsed.total?.minor, 4499); assert.equal(parsed.amountPaid?.minor, 4499);
+  assert.equal(parsed.items.length, 1); assert.equal(parsed.items[0].name, "Goatify"); assert.equal(parsed.items[0].quantity, 1); assert.equal(parsed.items[0].lineTotal?.minor, 4499); assert.equal(parsed.items[0].unitAmount, null); assert.equal(parsed.issues.includes("NO_LINE_ITEMS"), false);
 });
 
 test("text-based PDF extraction feeds a single review line without OCR", async () => {
