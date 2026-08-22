@@ -29,10 +29,18 @@ export async function GET() {
   try {
     const [vat, settlements] = await Promise.all([
       db.prepare(`SELECT
-        COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN input_vat_ore ELSE 0 END), 0) AS inputVatOre,
-        COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN deductible_vat_ore ELSE 0 END), 0) AS deductibleInputVatOre,
-        COALESCE(SUM(output_vat_ore), 0) AS outputVatOre
-        FROM tracker_transactions`).first<{ inputVatOre: number; deductibleInputVatOre: number; outputVatOre: number }>(),
+        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN input_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(input_vat_ore), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
+          THEN COALESCE(CAST(json_extract(source_details, '$.inputVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS inputVatOre,
+        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN deductible_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(deductible_vat_ore), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
+          THEN COALESCE(CAST(json_extract(source_details, '$.deductibleVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS deductibleInputVatOre,
+        (SELECT COALESCE(SUM(output_vat_ore), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(output_vat_ore), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
+          THEN COALESCE(CAST(json_extract(source_details, '$.outputVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS outputVatOre`).first<{ inputVatOre: number; deductibleInputVatOre: number; outputVatOre: number }>(),
       db.prepare(`SELECT ${settlementSelect} FROM tracker_vat_settlements
         ORDER BY occurred_at DESC, created_at DESC`).all<TrackerVatSettlement>(),
     ]);

@@ -155,6 +155,7 @@ export const trackerTransactions = sqliteTable(
     supplierCountry: text("supplier_country"),
     customerCountry: text("customer_country"),
     isB2b: integer("is_b2b", { mode: "boolean" }),
+    transactionContext: text("transaction_context", { enum: ["PRIVATE", "B2B", "SPECIAL"] }),
     vatIdReference: text("vat_id_reference"),
     occurredAt: text("occurred_at").notNull(),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -164,6 +165,7 @@ export const trackerTransactions = sqliteTable(
     index("idx_tracker_transactions_product_id").on(table.productId),
     index("idx_tracker_transactions_type_date").on(table.type, table.occurredAt),
     index("idx_tracker_transactions_date").on(table.occurredAt),
+    index("idx_tracker_transactions_context_date").on(table.transactionContext, table.occurredAt),
   ],
 );
 
@@ -173,6 +175,19 @@ export const trackerVatSettlements = sqliteTable(
     id: text("id").primaryKey(),
     direction: text("direction", { enum: ["PAID", "RECEIVED"] }).notNull(),
     amountOre: integer("amount_ore").notNull(),
+    enteredAmountOre: integer("entered_amount_ore"),
+    priceMode: text("price_mode", { enum: ["VAT_EXCLUSIVE", "VAT_INCLUSIVE"] }),
+    vatTreatment: text("vat_treatment", { enum: [
+      "DANISH_PURCHASE_DEDUCTIBLE", "EU_PURCHASE_REVERSE_CHARGE", "PRIVATE_PURCHASE_NO_DEDUCTION",
+      "NO_VAT_OUTSIDE_SCOPE", "CUSTOM_MANUAL",
+    ] }),
+    vatRateBps: integer("vat_rate_bps"),
+    grossAmountOre: integer("gross_amount_ore"),
+    inputVatOre: integer("input_vat_ore"),
+    outputVatOre: integer("output_vat_ore"),
+    deductibleVatOre: integer("deductible_vat_ore"),
+    supplierCountry: text("supplier_country"),
+    transactionContext: text("transaction_context", { enum: ["PRIVATE", "B2B", "SPECIAL"] }),
     occurredAt: text("occurred_at").notNull(),
     reference: text("reference").notNull().default(""),
     notes: text("notes").notNull().default(""),
@@ -260,6 +275,7 @@ export const trackerSubscriptionPayments = sqliteTable(
   (table) => [
     index("idx_tracker_subscription_payments_subscription_date").on(table.subscriptionId, table.occurredAt),
     index("idx_tracker_subscription_payments_date").on(table.occurredAt),
+    index("idx_tracker_subscription_payments_vat_date").on(table.vatTreatment, table.occurredAt),
     check("tracker_subscription_payments_amount_positive", sql`${table.amountOre} > 0`),
   ],
 );

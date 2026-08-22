@@ -29,9 +29,10 @@ test("subscription definitions never post expenses automatically", async () => {
     source("app/api/track/analytics/route.ts"),
   ]);
   const subscriptionCreate = subscriptions.slice(subscriptions.indexOf("export async function POST"), subscriptions.indexOf("export async function PATCH"));
-  assert.doesNotMatch(subscriptionCreate, /INSERT INTO tracker_(?:expenses|subscription_payments)/);
+  assert.doesNotMatch(subscriptionCreate, /INSERT INTO tracker_expenses/);
+  assert.match(subscriptionCreate, /payload\.initialPayment === undefined/);
   assert.match(subscriptions, /KEEP_PAYMENTS/);
-  assert.match(payments, /INSERT INTO tracker_subscription_payments/);
+  assert.match(payments, /createTrackerSubscriptionPaymentStatement/);
   assert.match(overview, /tracker_expenses/);
   assert.match(overview, /tracker_subscription_payments/);
   assert.doesNotMatch(overview, /SUM\(cost_ore\)/);

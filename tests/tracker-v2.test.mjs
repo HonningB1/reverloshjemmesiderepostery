@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  calculateVatAmounts, recalculateProductSales, vatPosition,
+  calculateVatAmounts, defaultTransactionVat, recalculateProductSales, vatPosition,
 } from "../lib/tracker-accounting.ts";
 
 const root = new URL("../", import.meta.url);
@@ -129,4 +129,22 @@ test("language choice and Starlink repair are explicit, persisted and dry-run sa
   assert.match(repair, /Supplier country remains unset/);
   assert.match(repair, /2 = \(/);
   assert.match(repair, /--confirm/);
+});
+
+test("normal manual transactions default to private B2C gross pricing while explicit special treatment wins", async () => {
+  const purchases = await source("lib/tracker-purchases.ts");
+  assert.match(purchases, /defaultTransactionVat\("PURCHASE", transactionContext\)/); assert.match(purchases, /explicitContext \?\? "PRIVATE"/);
+  const privateCost = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 125_000, enteredShippingOre: 0, ...defaultTransactionVat("PURCHASE") });
+  assert.equal(privateCost.grossAmountOre, 125_000); assert.equal(privateCost.economicPurchaseCostOre, 125_000); assert.equal(privateCost.deductibleVatOre, 0);
+  const b2cSale = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 100_000, enteredTotalPriceOre: 100_000, enteredShippingOre: 0, ...defaultTransactionVat("SALE") });
+  assert.equal(b2cSale.grossAmountOre, 100_000); assert.equal(b2cSale.revenueOre, 80_000); assert.equal(b2cSale.outputVatOre, 20_000);
+  assert.equal(defaultTransactionVat("SALE", "B2B"), null);
+  const b2b = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 100_000, enteredShippingOre: 0, priceMode: "VAT_EXCLUSIVE", vatTreatment: "EU_B2B_SALE_REVERSE_CHARGE", vatRateBps: 0 });
+  assert.equal(b2b.grossAmountOre, 100_000); assert.equal(b2b.outputVatOre, 0);
+});
+
+test("purchase-context migration is additive and leaves historical rows untouched", async () => {
+  const migration = await source("drizzle/0012_tracker_purchase_context_and_subscription_vat.sql");
+  assert.match(migration, /ALTER TABLE tracker_transactions ADD COLUMN transaction_context/); assert.match(migration, /tracker_subscription_payments ADD COLUMN entered_amount_ore/);
+  assert.match(migration, /idx_tracker_subscription_payments_vat_date/); assert.doesNotMatch(migration, /DROP TABLE|DELETE FROM|UPDATE tracker_/i);
 });

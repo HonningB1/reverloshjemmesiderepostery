@@ -1,8 +1,8 @@
-import { calculateVatAmounts, recalculateProductSales, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { calculateVatAmounts, defaultTransactionVat, recalculateProductSales, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
   noStoreJson, optionalTrackerMoney, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
-  trackerError, trackerInteger, trackerPriceMode, trackerUnavailable, trackerVatTreatment, transactionId,
+  trackerError, trackerInteger, trackerPriceMode, trackerTransactionContext, trackerUnavailable, trackerVatTreatment, transactionId,
 } from "../../../../lib/tracker";
 import type { TrackerProduct, TrackerStatus, TrackerTransaction, TransactionType } from "../../../track/types";
 
@@ -16,7 +16,7 @@ const transactionSelect = `t.id, t.product_id AS productId, p.name AS productNam
   t.vat_rate_bps AS vatRateBps, t.gross_amount_ore AS grossAmountOre, t.input_vat_ore AS inputVatOre,
   t.output_vat_ore AS outputVatOre, t.deductible_vat_ore AS deductibleVatOre,
   t.supplier_country AS supplierCountry, t.customer_country AS customerCountry,
-  t.is_b2b AS isB2b, t.vat_id_reference AS vatIdReference,
+  t.is_b2b AS isB2b, t.transaction_context AS transactionContext, t.vat_id_reference AS vatIdReference,
   t.occurred_at AS occurredAt, t.created_at AS createdAt, t.updated_at AS updatedAt`;
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
@@ -40,9 +40,11 @@ function parseOptionalMoney(value: unknown) {
 }
 
 function parseAccounting(payload: Record<string, unknown>, type: TransactionType, quantity: number, unitPriceOre: number, shippingOre: number) {
-  const priceMode = trackerPriceMode(payload.priceMode ?? "VAT_EXCLUSIVE");
-  const vatTreatment = trackerVatTreatment(payload.vatTreatment);
-  const vatRateBps = trackerInteger(payload.vatRateBps ?? 0, { max: 10_000 });
+  const explicitContext = payload.transactionContext === undefined || payload.transactionContext === "" ? null : trackerTransactionContext(payload.transactionContext);
+  const defaults = defaultTransactionVat(type, explicitContext ?? "PRIVATE");
+  const priceMode = trackerPriceMode(payload.priceMode ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.priceMode : undefined));
+  const vatTreatment = trackerVatTreatment(payload.vatTreatment ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.vatTreatment : undefined));
+  const vatRateBps = trackerInteger(payload.vatRateBps ?? (!explicitContext || explicitContext === "PRIVATE" ? defaults.vatRateBps : undefined), { max: 10_000 });
   const manualInputVatOre = parseOptionalMoney(payload.inputVatOre);
   const manualOutputVatOre = parseOptionalMoney(payload.outputVatOre);
   const manualDeductibleVatOre = parseOptionalMoney(payload.deductibleVatOre);
@@ -50,8 +52,10 @@ function parseAccounting(payload: Record<string, unknown>, type: TransactionType
   if (!priceMode || !vatTreatment || vatRateBps === null || manualInputVatOre === undefined ||
       manualOutputVatOre === undefined || manualDeductibleVatOre === undefined || enteredTotalPriceOre === undefined) return null;
   try {
+    const inferredContext = vatTreatment === "EU_B2B_SALE_REVERSE_CHARGE" ? "B2B" :
+      (vatTreatment === "EU_PURCHASE_REVERSE_CHARGE" || vatTreatment === "NO_VAT_OUTSIDE_SCOPE" || vatTreatment === "CUSTOM_MANUAL") ? "SPECIAL" : "PRIVATE";
     return {
-      priceMode, vatTreatment, vatRateBps,
+      transactionContext: explicitContext ?? inferredContext, priceMode, vatTreatment, vatRateBps,
       amounts: calculateVatAmounts({
         type, quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre,
         priceMode, vatTreatment, vatRateBps, enteredTotalPriceOre,
@@ -155,13 +159,13 @@ export async function POST(request: Request) {
            other_costs_ore, cost_basis_ore, revenue_ore, total_costs_ore, net_profit_ore, notes,
            entered_unit_price_ore, entered_shipping_ore, entered_total_price_ore, price_mode,
            vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore, output_vat_ore, deductible_vat_ore,
-           customer_country, is_b2b, vat_id_reference, occurred_at, updated_at)
-          VALUES (?, ?, 'SALE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
+           customer_country, is_b2b, transaction_context, vat_id_reference, occurred_at, updated_at)
+          VALUES (?, ?, 'SALE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
           .bind(id, selectedProductId, quantity, accounting.amounts.unitPriceOre, shippingOre, platform, feeOre,
             promotedFeeOre, otherCostsOre, sale.costBasisOre, sale.revenueOre, sale.totalCostsOre, sale.netProfitOre,
             notes, enteredUnitPriceOre, shippingOre, parseOptionalMoney(payload.totalPriceOre), accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
             accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
-            customerCountry || null, isB2b ? 1 : 0, vatIdReference || null, occurredAt),
+            customerCountry || null, isB2b ? 1 : 0, accounting.transactionContext, vatIdReference || null, occurredAt),
         db.prepare(`UPDATE tracker_products SET remaining_quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`).bind(ledger.remainingQuantity, statusForRemaining(product.status, ledger.remainingQuantity), selectedProductId),
         ...saleRecalculationStatements(db, ledger.sales.filter((row) => row.id !== id)),
@@ -216,14 +220,14 @@ export async function PATCH(request: Request) {
         db.prepare(`UPDATE tracker_transactions SET quantity = ?, unit_price_ore = ?, shipping_ore = ?, supplier = ?,
           cost_basis_ore = ?, total_costs_ore = ?, notes = ?, entered_unit_price_ore = ?, entered_shipping_ore = ?,
           price_mode = ?, vat_treatment = ?, vat_rate_bps = ?,
-          gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?, deductible_vat_ore = ?, supplier_country = ?,
+          gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?, deductible_vat_ore = ?, supplier_country = ?, transaction_context = ?,
           occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(quantity, accounting.amounts.unitPriceOre, accounting.amounts.shippingOre, supplier || null,
             accounting.amounts.economicPurchaseCostOre, accounting.amounts.economicPurchaseCostOre, notes,
             enteredUnitPriceOre, shippingOre,
             accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
             accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
-            supplierCountry || null, occurredAt, id),
+            supplierCountry || null, accounting.transactionContext, occurredAt, id),
         ...saleRecalculationStatements(db, ledger.sales),
       ]);
     } else {
@@ -272,13 +276,13 @@ export async function PATCH(request: Request) {
           total_costs_ore = ?, net_profit_ore = ?, notes = ?, entered_unit_price_ore = ?, entered_shipping_ore = ?, entered_total_price_ore = ?,
           price_mode = ?, vat_treatment = ?, vat_rate_bps = ?,
           gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?, deductible_vat_ore = ?, customer_country = ?,
-          is_b2b = ?, vat_id_reference = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          is_b2b = ?, transaction_context = ?, vat_id_reference = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(nextProductId, quantity, accounting.amounts.unitPriceOre, shippingOre, platform, feeOre, promotedFeeOre,
             otherCostsOre, current.costBasisOre, current.revenueOre, current.totalCostsOre, current.netProfitOre, notes,
             enteredUnitPriceOre, shippingOre, parseOptionalMoney(payload.totalPriceOre),
             accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
             accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
-            customerCountry || null, isB2b ? 1 : 0, vatIdReference || null, occurredAt, id),
+            customerCountry || null, isB2b ? 1 : 0, accounting.transactionContext, vatIdReference || null, occurredAt, id),
         db.prepare(`UPDATE tracker_products SET remaining_quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(oldLedger.remainingQuantity, statusForRemaining(oldProduct.status, oldLedger.remainingQuantity), oldProduct.id),
       ];

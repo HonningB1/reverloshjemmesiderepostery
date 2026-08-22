@@ -1,29 +1,12 @@
 import {
-  cleanTrackerText, noStoreJson, subscriptionId, trackerDate, trackerDb, trackerError,
-  trackerInteger, trackerUnavailable,
+  cleanTrackerText, noStoreJson, trackerDb, trackerError, trackerUnavailable,
 } from "../../../../lib/tracker";
-import { billingPeriods, type BillingPeriod, type SubscriptionStatus, type TrackerSubscription } from "../../../track/types";
-
-const statuses = ["ACTIVE", "ARCHIVED"] as const;
+import { createTrackerSubscriptionStatements, parseTrackerSubscriptionInput, parseTrackerSubscriptionPaymentInput } from "../../../../lib/tracker-subscriptions";
+import type { TrackerSubscription } from "../../../track/types";
 const subscriptionSelect = `s.id, s.name, s.cost_ore AS costOre, s.category,
   s.billing_period AS billingPeriod, s.next_payment_date AS nextPaymentDate,
   s.auto_renew AS autoRenew, s.status, s.notes, s.created_at AS createdAt, s.updated_at AS updatedAt,
   COALESCE(SUM(p.amount_ore), 0) AS paidTotalOre, COUNT(p.id) AS paymentCount`;
-
-function parseSubscription(payload: Record<string, unknown>) {
-  const name = cleanTrackerText(payload.name, 160, true);
-  const costOre = trackerInteger(payload.costOre, { min: 1 });
-  const category = cleanTrackerText(payload.category, 80, true);
-  const billingPeriod = typeof payload.billingPeriod === "string" && billingPeriods.includes(payload.billingPeriod as BillingPeriod)
-    ? payload.billingPeriod as BillingPeriod : null;
-  const nextPaymentDate = trackerDate(payload.nextPaymentDate);
-  const autoRenew = payload.autoRenew === true || payload.autoRenew === 1;
-  const status = typeof payload.status === "string" && statuses.includes(payload.status as SubscriptionStatus)
-    ? payload.status as SubscriptionStatus : null;
-  const notes = cleanTrackerText(payload.notes, 2_000) ?? "";
-  return name && costOre !== null && category && billingPeriod && nextPaymentDate && status
-    ? { name, costOre, category, billingPeriod, nextPaymentDate, autoRenew, status, notes } : null;
-}
 
 async function selectedSubscription(db: D1Database, id: string) {
   const subscription = await db.prepare(`SELECT ${subscriptionSelect} FROM tracker_subscriptions s
@@ -41,15 +24,13 @@ export async function POST(request: Request) {
   const db = trackerDb();
   if (!db) return trackerUnavailable();
   try {
-    const input = parseSubscription(await request.json() as Record<string, unknown>);
+    const payload = await request.json() as Record<string, unknown>; const input = parseTrackerSubscriptionInput(payload);
     if (!input) return noStoreJson({ error: "Complete the subscription with a name, positive DKK cost, category, billing period and renewal date.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
-    const id = subscriptionId();
-    await db.prepare(`INSERT INTO tracker_subscriptions
-      (id, name, cost_ore, category, billing_period, next_payment_date, auto_renew, status, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, input.name, input.costOre, input.category, input.billingPeriod, input.nextPaymentDate,
-        input.autoRenew ? 1 : 0, input.status, input.notes).run();
-    return noStoreJson({ subscription: await selectedSubscription(db, id) }, { status: 201 });
+    const payment = payload.initialPayment === undefined ? null : payload.initialPayment && typeof payload.initialPayment === "object"
+      ? parseTrackerSubscriptionPaymentInput(payload.initialPayment as Record<string, unknown>) : null;
+    if (payload.initialPayment !== undefined && !payment) return noStoreJson({ error: "The initial subscription payment or VAT details are invalid.", errorCode: "INVALID_SUBSCRIPTION_PAYMENT" }, { status: 400 });
+    const created = createTrackerSubscriptionStatements(db, input, payment ?? undefined); await db.batch(created.statements);
+    return noStoreJson({ subscription: await selectedSubscription(db, created.subscriptionId), paymentId: created.paymentId }, { status: 201 });
   } catch (error) {
     return trackerError(error, "Unable to save the subscription.");
   }
@@ -61,7 +42,7 @@ export async function PATCH(request: Request) {
   try {
     const payload = await request.json() as Record<string, unknown>;
     const id = cleanTrackerText(payload.id, 80, true);
-    const input = parseSubscription(payload);
+    const input = parseTrackerSubscriptionInput(payload);
     if (!id || !input) return noStoreJson({ error: "The subscription update contains invalid values.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
     const result = await db.prepare(`UPDATE tracker_subscriptions SET name = ?, cost_ore = ?, category = ?,
       billing_period = ?, next_payment_date = ?, auto_renew = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -114,7 +95,12 @@ export async function DELETE(request: Request) {
           'SUBSCRIPTION_PAYMENT', p.id,
           json_object('subscriptionId', s.id, 'subscriptionName', s.name, 'costOre', s.cost_ore,
             'category', s.category, 'billingPeriod', s.billing_period, 'nextPaymentDate', s.next_payment_date,
-            'autoRenew', s.auto_renew, 'status', s.status, 'subscriptionNotes', s.notes),
+            'autoRenew', s.auto_renew, 'status', s.status, 'subscriptionNotes', s.notes,
+            'enteredAmountOre', p.entered_amount_ore, 'priceMode', p.price_mode,
+            'vatTreatment', p.vat_treatment, 'vatRateBps', p.vat_rate_bps,
+            'grossAmountOre', p.gross_amount_ore, 'inputVatOre', p.input_vat_ore,
+            'outputVatOre', p.output_vat_ore, 'deductibleVatOre', p.deductible_vat_ore,
+            'supplierCountry', p.supplier_country, 'transactionContext', p.transaction_context),
           p.created_at, CURRENT_TIMESTAMP
         FROM tracker_subscription_payments p JOIN tracker_subscriptions s ON s.id = p.subscription_id
         WHERE s.id = ?`).bind(id),

@@ -1,4 +1,4 @@
-import type { AnalyticsPeriod, PriceMode, TransactionType, VatTreatment } from "../app/track/types";
+import type { AnalyticsPeriod, PriceMode, TransactionContext, TransactionType, VatTreatment } from "../app/track/types";
 
 const MAX_MONEY_ORE = 100_000_000_000;
 
@@ -26,6 +26,13 @@ export type VatCalculation = {
   outputVatOre: number;
   deductibleVatOre: number;
 };
+
+export function defaultTransactionVat(type: TransactionType, context: TransactionContext = "PRIVATE") {
+  if (context !== "PRIVATE") return null;
+  return type === "PURCHASE"
+    ? { priceMode: "VAT_INCLUSIVE" as const, vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION" as const, vatRateBps: 0 }
+    : { priceMode: "VAT_INCLUSIVE" as const, vatTreatment: "DANISH_SALE_VAT" as const, vatRateBps: 2500 };
+}
 
 function safeMoney(value: number, label: string) {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_MONEY_ORE) {

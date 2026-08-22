@@ -1,9 +1,11 @@
 import { env } from "cloudflare:workers";
 import {
   priceModes,
+  transactionContexts,
   trackerStatuses,
   vatTreatments,
   type PriceMode,
+  type TransactionContext,
   type TrackerStatus,
   type VatTreatment,
 } from "../app/track/types";
@@ -73,6 +75,10 @@ export function trackerStatus(value: unknown): TrackerStatus | null {
 
 export function trackerPriceMode(value: unknown): PriceMode | null {
   return typeof value === "string" && priceModes.includes(value as PriceMode) ? value as PriceMode : null;
+}
+
+export function trackerTransactionContext(value: unknown): TransactionContext | null {
+  return typeof value === "string" && transactionContexts.includes(value as TransactionContext) ? value as TransactionContext : null;
 }
 
 export function trackerVatTreatment(value: unknown): VatTreatment | null {

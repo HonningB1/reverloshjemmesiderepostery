@@ -1,5 +1,5 @@
 export const trackerDa = {
-  "Overview": "Overblik", "Inventory": "Lager", "Transactions": "Transaktioner", "Expenses": "Udgifter",
+  "Overview": "Overblik", "Inventory": "Lager", "Transactions": "Transaktioner", "Expenses": "Udgifter", "Subscription": "Abonnement",
   "VAT": "Moms", "Analytics": "Analyse", "Calculator": "Beregner", "Private workspace": "Privat arbejdsområde",
   "Reverlo internal": "Reverlo internt", "DKK workspace": "DKK-arbejdsområde", "English": "Engelsk", "Danish": "Dansk",
   "Language": "Sprog", "Loading private tracker": "Indlæser privat tracker", "Close dialog": "Luk dialog",
@@ -135,6 +135,11 @@ export const trackerDa = {
   "Currency": "Valuta", "Unknown": "Ukendt", "Total": "Total", "Subtotal": "Delsum", "Discount": "Rabat", "VAT": "Moms", "Parsed line items": "Fortolkede varelinjer", "Line {number}": "Linje {number}",
   "Source": "Kilde", "Message ID": "Besked-id", "Attachments": "Vedhæftninger", "Email": "E-mail", "Order": "Ordre", "Lines": "Linjer", "Review": "Gennemgang",
   "Source document amount": "Kildedokumentets beløb", "Not an accounting cost": "Ikke en regnskabskostpris",
+  "Purchase type": "Købstype", "Inventory purchase": "Lagerkøb", "Transaction context": "Transaktionskontekst",
+  "Record subscription": "Registrér abonnement",
+  "Private / B2C": "Privat / B2C", "Special VAT treatment": "Særlig momsbehandling", "Review decisions": "Gennemgangsvalg",
+  "Found in document": "Fundet i dokument", "Subscription details": "Abonnementsoplysninger", "Actual subscription payment": "Faktisk abonnementsbetaling",
+  "Review before enabling": "Gennemgå før aktivering", "Import subscription": "Importér abonnement", "Import inventory purchase": "Importér lagerkøb",
   "Forwarded by": "Videresendt af", "Line items": "Varelinjer", "Loading email imports": "Indlæser mailimporter", "Order number": "Ordrenummer", "Receipt number": "Kvitteringsnummer", "Amount paid": "Betalt beløb", "Pages": "Sider", "Extracted characters": "Udtrukne tegn",
   "Original email": "Oprindelig e-mail", "Original sender": "Oprindelig afsender", "Purchase email": "Købs-e-mail", "Review first": "Gennemgå først",
   "Review purchase lines": "Gennemgå købslinjer", "Choose price basis": "Vælg prisgrundlag", "Received": "Modtaget", "Processing": "Behandler",
@@ -153,7 +158,7 @@ export const trackerDa = {
   "Invoice number": "Fakturanummer", "Original subject": "Oprindeligt emne", "Document totals": "Dokumenttotaler", "Choose currency": "Vælg valuta",
   "Add line item": "Tilføj varelinje", "Remove line item": "Fjern varelinje", "Parsed email": "Fortolket e-mail", "Manual review line": "Manuel gennemgangslinje",
   "Document conflicts require review": "Dokumentkonflikter kræver gennemgang", "CONFLICTING_SUPPLIER": "Modstridende leverandør", "CONFLICTING_ORDER_NUMBER": "Modstridende ordrenummer", "CONFLICTING_RECEIPT_NUMBER": "Modstridende kvitteringsnummer", "CONFLICTING_INVOICE_NUMBER": "Modstridende fakturanummer",
-  "CONFLICTING_PURCHASE_DATE": "Modstridende købsdato", "CONFLICTING_SUBTOTAL": "Modstridende delsum", "CONFLICTING_SHIPPING": "Modstridende fragt", "CONFLICTING_DISCOUNT": "Modstridende rabat", "CONFLICTING_TOTAL": "Modstridende total", "CONFLICTING_AMOUNT_PAID": "Modstridende betalt beløb", "CONFLICTING_VAT_AMOUNT": "Modstridende momsbeløb", "CONFLICTING_VAT_RATE": "Modstridende momssats", "CONFLICTING_LINE_ITEMS": "Modstridende varelinjer",
+  "CONFLICTING_PURCHASE_DATE": "Modstridende købsdato", "CONFLICTING_SUBTOTAL": "Modstridende delsum", "CONFLICTING_SHIPPING": "Modstridende fragt", "CONFLICTING_DISCOUNT": "Modstridende rabat", "CONFLICTING_TOTAL": "Modstridende total", "CONFLICTING_AMOUNT_PAID": "Modstridende betalt beløb", "CONFLICTING_VAT_AMOUNT": "Modstridende momsbeløb", "CONFLICTING_VAT_RATE": "Modstridende momssats", "CONFLICTING_VAT_PRICE_MODE": "Modstridende moms-prisgrundlag", "CONFLICTING_LINE_ITEMS": "Modstridende varelinjer",
 } as const;
 
 export type TrackerTranslationKey = keyof typeof trackerDa;

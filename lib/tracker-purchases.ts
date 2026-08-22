@@ -1,11 +1,11 @@
-import { calculateVatAmounts } from "./tracker-accounting.ts";
-import { productId, strictTrackerText, trackerDate, trackerInteger, trackerPriceMode, trackerVatTreatment, transactionId } from "./tracker.ts";
-import type { PriceMode, VatTreatment } from "../app/track/types.ts";
+import { calculateVatAmounts, defaultTransactionVat } from "./tracker-accounting.ts";
+import { productId, strictTrackerText, trackerDate, trackerInteger, trackerPriceMode, trackerTransactionContext, trackerVatTreatment, transactionId } from "./tracker.ts";
+import type { PriceMode, TransactionContext, VatTreatment } from "../app/track/types.ts";
 
 export type TrackerPurchaseInput = {
   name: string; quantity: number; unitPriceOre: number; shippingOre: number; supplier: string;
   supplierCountry: string; occurredAt: string; notes: string; priceMode: PriceMode; vatTreatment: VatTreatment;
-  vatRateBps: number; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null;
+  vatRateBps: number; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null; transactionContext: TransactionContext;
 };
 
 function country(value: unknown) {
@@ -24,8 +24,11 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   const unitPriceOre = trackerInteger(payload.unitPriceOre, { min: 0 }); const shippingOre = trackerInteger(payload.shippingOre ?? 0);
   const supplier = strictTrackerText(payload.supplier ?? "", 120); const supplierCountry = country(payload.supplierCountry);
   const occurredAt = trackerDate(payload.occurredAt); const notes = strictTrackerText(payload.notes ?? "", 2_000);
-  const priceMode = trackerPriceMode(payload.priceMode ?? "VAT_EXCLUSIVE"); const vatTreatment = trackerVatTreatment(payload.vatTreatment);
-  const vatRateBps = trackerInteger(payload.vatRateBps ?? 0, { max: 10_000 });
+  const explicitContext = payload.transactionContext === undefined || payload.transactionContext === "" ? null : trackerTransactionContext(payload.transactionContext);
+  const transactionContext = explicitContext ?? "PRIVATE";
+  const defaults = defaultTransactionVat("PURCHASE", transactionContext);
+  const priceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode); const vatTreatment = trackerVatTreatment(payload.vatTreatment ?? defaults?.vatTreatment);
+  const vatRateBps = trackerInteger(payload.vatRateBps ?? defaults?.vatRateBps, { max: 10_000 });
   const inputVatOre = optionalMoney(payload.inputVatOre); const outputVatOre = optionalMoney(payload.outputVatOre); const deductibleVatOre = optionalMoney(payload.deductibleVatOre);
   if (!name || quantity === null || unitPriceOre === null || shippingOre === null || supplier === null || supplierCountry === null ||
       !occurredAt || notes === null || !priceMode || !vatTreatment || vatRateBps === null ||
@@ -36,7 +39,7 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
     calculateVatAmounts({ type: "PURCHASE", quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre,
       priceMode, vatTreatment, vatRateBps, manualInputVatOre: inputVatOre, manualOutputVatOre: outputVatOre, manualDeductibleVatOre: deductibleVatOre });
   } catch { return null; }
-  return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes, priceMode, vatTreatment, vatRateBps, inputVatOre, outputVatOre, deductibleVatOre };
+  return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes, priceMode, vatTreatment, vatRateBps, inputVatOre, outputVatOre, deductibleVatOre, transactionContext };
 }
 
 export function createTrackerPurchaseStatements(db: D1Database, input: TrackerPurchaseInput) {
@@ -54,12 +57,12 @@ export function createTrackerPurchaseStatements(db: D1Database, input: TrackerPu
       db.prepare(`INSERT INTO tracker_transactions
         (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, cost_basis_ore, total_costs_ore,
          notes, entered_unit_price_ore, entered_shipping_ore, price_mode, vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore,
-         output_vat_ore, deductible_vat_ore, supplier_country, occurred_at, updated_at)
-        VALUES (?, ?, 'PURCHASE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
+         output_vat_ore, deductible_vat_ore, supplier_country, transaction_context, occurred_at, updated_at)
+        VALUES (?, ?, 'PURCHASE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
         .bind(purchaseTransactionId, id, input.quantity, amounts.unitPriceOre, amounts.shippingOre, input.supplier || null,
           amounts.economicPurchaseCostOre, amounts.economicPurchaseCostOre, input.notes, input.unitPriceOre, input.shippingOre,
           input.priceMode, input.vatTreatment, input.vatRateBps, amounts.grossAmountOre, amounts.inputVatOre, amounts.outputVatOre,
-          amounts.deductibleVatOre, input.supplierCountry || null, input.occurredAt),
+          amounts.deductibleVatOre, input.supplierCountry || null, input.transactionContext, input.occurredAt),
     ],
   };
 }
