@@ -96,6 +96,56 @@ test("fees, promoted fees, shipping and other costs each reduce trading profit o
   });
 });
 
+test("VAT-inclusive B2C sales subtract output VAT once, inventory cost and seller-paid shipping", () => {
+  const saleAmounts = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 121_108,
+    enteredTotalPriceOre: 121_108, enteredShippingOre: 9_000, priceMode: "VAT_INCLUSIVE",
+    vatTreatment: "DANISH_SALE_VAT", vatRateBps: 2_500 });
+  const ledger = recalculateProductSales({ quantity: 1, purchasePriceOre: 97_170, purchaseShippingOre: 0 }, [
+    sale({ revenueOre: saleAmounts.revenueOre, shippingOre: 9_000 }),
+  ]);
+  const result = ledger.sales[0];
+  assert.deepEqual({ grossSale: saleAmounts.grossAmountOre, netRevenue: saleAmounts.revenueOre,
+    outputVat: saleAmounts.outputVatOre, costBasis: result.costBasisOre,
+    saleExpenses: result.totalCostsOre - result.costBasisOre, profit: result.netProfitOre }, {
+    grossSale: 121_108, netRevenue: 96_886, outputVat: 24_222, costBasis: 97_170,
+    saleExpenses: 9_000, profit: -9_284,
+  });
+  assert.equal(result.totalCostsOre, 106_170, "output VAT is already removed from revenue, never added as a second expense");
+});
+
+test("purchase VAT treatment determines inventory cost basis for multi-unit sales and edits", () => {
+  const nonDeductible = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 100_000,
+    enteredShippingOre: 0, priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 2_500 });
+  const deductible = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 100_000,
+    enteredShippingOre: 0, priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_PURCHASE_DEDUCTIBLE", vatRateBps: 2_500 });
+  const vatFree = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 80_000,
+    enteredShippingOre: 0, priceMode: "VAT_EXCLUSIVE", vatTreatment: "NO_VAT_OUTSIDE_SCOPE", vatRateBps: 0 });
+  assert.deepEqual({ gross: nonDeductible.grossAmountOre, inputVat: nonDeductible.inputVatOre,
+    deductibleVat: nonDeductible.deductibleVatOre, inventoryCost: nonDeductible.economicPurchaseCostOre },
+  { gross: 200_000, inputVat: 40_000, deductibleVat: 0, inventoryCost: 200_000 });
+  assert.deepEqual({ gross: deductible.grossAmountOre, inputVat: deductible.inputVatOre,
+    deductibleVat: deductible.deductibleVatOre, inventoryCost: deductible.economicPurchaseCostOre },
+  { gross: 200_000, inputVat: 40_000, deductibleVat: 40_000, inventoryCost: 160_000 });
+  assert.equal(vatFree.economicPurchaseCostOre, 160_000);
+  const first = recalculateProductSales({ quantity: 2, purchasePriceOre: deductible.unitPriceOre,
+    purchaseShippingOre: deductible.shippingOre }, [sale({ quantity: 1, revenueOre: 100_000 })]);
+  const edited = recalculateProductSales({ quantity: 2, purchasePriceOre: deductible.unitPriceOre,
+    purchaseShippingOre: deductible.shippingOre }, [sale({ quantity: 2, revenueOre: 200_000 })]);
+  assert.equal(first.sales[0].costBasisOre, 80_000);
+  assert.equal(edited.sales[0].costBasisOre, 160_000, "edit and create paths allocate the same economic cost per unit");
+  assert.equal(edited.sales[0].netProfitOre, 40_000);
+});
+
+test("sale preview and persisted transaction share the VAT and ledger calculation", async () => {
+  const [ui, route] = await Promise.all([source("app/track/TrackerTransactions.tsx"), source("app/api/track/transactions/route.ts")]);
+  assert.match(ui, /calculateVatAmounts\(\{ type, quantity: parsedQuantity/);
+  assert.match(ui, /recalculateProductSales\(selected!/);
+  assert.match(ui, /Gross sale \(incl\. VAT\)/);
+  assert.match(ui, /preview\.totalCostsOre - preview\.costBasisOre/);
+  assert.match(route, /parseAccounting\(payload, "SALE", quantity, enteredUnitPriceOre, shippingOre\)/);
+  assert.match(route, /recalculateProductSales\(product, \[\.\.\.await loadSales\(db, selectedProductId\), candidate\]\)/);
+});
+
 test("expense and subscription-payment create, edit and delete reconcile operating and net profit", () => {
   const expenses = [{ amountOre: 10_000 }, { amountOre: 5_000 }];
   const payments = [{ amountOre: 4_000 }, { amountOre: 4_000 }];
