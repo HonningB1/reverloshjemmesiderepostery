@@ -139,8 +139,12 @@ footer { display: flex; justify-content: space-between; padding: 26px 0 37px; co
 .track-form textarea { min-height: 96px; }
 .track-form .track-toggle-field { grid-template-rows: none; min-height: var(--track-control-height); }
 .track-form .track-toggle-field > small { position: static; max-width: none; overflow: visible; text-align: left; white-space: normal; }
+.track-checkbox-field > .track-checkbox-control { display: flex; align-items: center; gap: 9px; width: 100%; height: var(--track-control-height); min-height: var(--track-control-height); border: 1px solid #333d38; border-radius: 4px; padding: 0 10px; background: #0d100f; color: #cfd5d1; cursor: pointer; font-size: 9px; font-weight: 700; }
+.track-checkbox-field > .track-checkbox-control input { appearance: auto; flex: 0 0 auto; width: 16px; height: 16px; min-height: 16px; margin: 0; padding: 0; accent-color: #9ecfa2; }
+.track-checkbox-field > .track-checkbox-control:focus-within { border-color: #6d8972; box-shadow: 0 0 0 3px rgba(109, 137, 114, .12); }
 .track-form-note { margin: 0; }
 .track-form-error { line-height: 1.5; }
+.track-data-table tbody tr.track-inventory-sold-out { background: #0d100f; }.track-data-table tbody tr.track-inventory-sold-out:hover { background: #111512; }.track-inventory-sold-out td { opacity: .68; }.track-inventory-sold-out .track-status-sold { opacity: 1; }
 .track-dialog-actions { align-items: center; min-height: 70px; }
 .track-vat-fields-body > .track-form-grid { margin: 0; }
 .track-vat-manual { align-items: start; }
