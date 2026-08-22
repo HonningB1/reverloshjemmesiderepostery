@@ -269,13 +269,13 @@ export async function PATCH(request: Request) {
           cost_basis_ore = ?, total_costs_ore = ?, notes = ?, entered_unit_price_ore = ?, entered_shipping_ore = ?,
           price_mode = ?, vat_treatment = ?, vat_rate_bps = ?,
           gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?, deductible_vat_ore = ?, supplier_country = ?, transaction_context = ?,
-          occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          is_b2b = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(quantity, accounting.amounts.unitPriceOre, accounting.amounts.shippingOre, supplier || null,
             accounting.amounts.economicPurchaseCostOre, accounting.amounts.economicPurchaseCostOre, notes,
             enteredUnitPriceOre, shippingOre,
             accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
             vatAmount(accounting, "inputVatOre"), vatAmount(accounting, "outputVatOre"), vatAmount(accounting, "deductibleVatOre"),
-            supplierCountry || null, accounting.transactionContext, occurredAt, id),
+            supplierCountry || null, accounting.transactionContext, accounting.transactionContext === "B2B" ? 1 : 0, occurredAt, id),
         ...saleRecalculationStatements(db, ledger.sales),
       ]);
     } else {

@@ -125,6 +125,44 @@ test("transaction API exposes edit/delete, transaction notes and atomic ledger r
   assert.match(route, /db\.batch/);
 });
 
+test("legacy purchase reclassification persists explicit B2B, SPECIAL and PRIVATE accounting states", async () => {
+  const db = new DatabaseSync(":memory:");
+  for (const migration of [
+    "drizzle/0005_private_reselling_tracker.sql", "drizzle/0007_tracker_expenses_subscriptions.sql", "drizzle/0008_tracker_vat_and_transaction_editing.sql",
+    "drizzle/0012_tracker_purchase_context_and_subscription_vat.sql",
+  ]) db.exec(await source(migration));
+  db.exec(`INSERT INTO tracker_products (id, name, quantity, remaining_quantity, purchase_price_ore, purchase_date, status)
+    VALUES ('p', 'Legacy item', 1, 1, 125000, '2026-01-01', 'IN_STOCK');
+    INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, cost_basis_ore, total_costs_ore,
+      transaction_context, is_b2b, price_mode, vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore, deductible_vat_ore, occurred_at)
+    VALUES ('legacy', 'p', 'PURCHASE', 1, 125000, 0, 125000, 125000, NULL, NULL, 'VAT_INCLUSIVE', 'CUSTOM_MANUAL', 2500, 125000, 25000, 25000, '2026-01-01');`);
+  const apply = (context, priceMode, treatment, rate, amounts) => db.prepare(`UPDATE tracker_transactions SET
+    unit_price_ore = ?, shipping_ore = ?, cost_basis_ore = ?, total_costs_ore = ?, price_mode = ?, vat_treatment = ?, vat_rate_bps = ?,
+    gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?, deductible_vat_ore = ?, transaction_context = ?, is_b2b = ? WHERE id = 'legacy'`)
+    .run(amounts.unitPriceOre, amounts.shippingOre, amounts.economicPurchaseCostOre, amounts.economicPurchaseCostOre,
+      priceMode, treatment, rate, amounts.grossAmountOre,
+      context === "PRIVATE" ? null : amounts.inputVatOre, context === "PRIVATE" ? null : amounts.outputVatOre,
+      context === "PRIVATE" ? null : amounts.deductibleVatOre, context, context === "B2B" ? 1 : 0);
+  const b2b = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 125_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_PURCHASE_DEDUCTIBLE", vatRateBps: 2_500 });
+  apply("B2B", "VAT_INCLUSIVE", "DANISH_PURCHASE_DEDUCTIBLE", 2_500, b2b);
+  assert.deepEqual({ ...db.prepare("SELECT transaction_context AS context, is_b2b AS isB2b, input_vat_ore AS inputVatOre, deductible_vat_ore AS deductibleVatOre, cost_basis_ore AS costBasisOre FROM tracker_transactions").get() },
+    { context: "B2B", isB2b: 1, inputVatOre: 25_000, deductibleVatOre: 25_000, costBasisOre: 100_000 });
+  const special = calculateVatAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 100_000, enteredShippingOre: 0,
+    priceMode: "VAT_EXCLUSIVE", vatTreatment: "EU_PURCHASE_REVERSE_CHARGE", vatRateBps: 2_500 });
+  apply("SPECIAL", "VAT_EXCLUSIVE", "EU_PURCHASE_REVERSE_CHARGE", 2_500, special);
+  assert.deepEqual({ ...db.prepare("SELECT transaction_context AS context, is_b2b AS isB2b, input_vat_ore AS inputVatOre, output_vat_ore AS outputVatOre, deductible_vat_ore AS deductibleVatOre FROM tracker_transactions").get() },
+    { context: "SPECIAL", isB2b: 0, inputVatOre: 25_000, outputVatOre: 25_000, deductibleVatOre: 25_000 });
+  const privateAmounts = calculatePrivateAmounts({ type: "PURCHASE", quantity: 1, enteredUnitPriceOre: 97_170, enteredShippingOre: 0 });
+  apply("PRIVATE", null, null, null, privateAmounts);
+  assert.deepEqual({ ...db.prepare("SELECT transaction_context AS context, is_b2b AS isB2b, price_mode AS priceMode, vat_treatment AS vatTreatment, vat_rate_bps AS vatRateBps, input_vat_ore AS inputVatOre, output_vat_ore AS outputVatOre, deductible_vat_ore AS deductibleVatOre, cost_basis_ore AS costBasisOre FROM tracker_transactions").get() },
+    { context: "PRIVATE", isB2b: 0, priceMode: null, vatTreatment: null, vatRateBps: null, inputVatOre: null, outputVatOre: null, deductibleVatOre: null, costBasisOre: 97_170 });
+  const route = await source("app/api/track/transactions/route.ts");
+  assert.match(route, /is_b2b = \?/);
+  assert.match(route, /accounting\.transactionContext === "B2B" \? 1 : 0/);
+  db.close();
+});
+
 test("language choice and Starlink repair are explicit, persisted and dry-run safe", async () => {
   const [i18n, repair] = await Promise.all([source("app/track/i18n.tsx"), source("scripts/repair-starlink-vat.mjs")]);
   assert.match(i18n, /reverlo-tracker-locale/);
@@ -179,15 +217,17 @@ test("VAT totals exclude effective PRIVATE rows, including NULL-context legacy V
     "drizzle/0012_tracker_purchase_context_and_subscription_vat.sql",
   ]) db.exec(await source(migration));
   db.exec(`INSERT INTO tracker_products (id, name, quantity, remaining_quantity, purchase_price_ore, purchase_date, status) VALUES ('p', 'Item', 1, 1, 1, '2026-01-01', 'IN_STOCK');
-    INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, cost_basis_ore, total_costs_ore, transaction_context, input_vat_ore, output_vat_ore, deductible_vat_ore, occurred_at) VALUES
-      ('private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'PRIVATE', 500, 0, 500, '2026-01-01'),
-      ('private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'PRIVATE', 0, 700, 0, '2026-01-02'),
-      ('legacy-private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, NULL, 600, 0, 600, '2026-01-02'),
-      ('legacy-private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, NULL, 0, 800, 0, '2026-01-02'),
-      ('legacy-b2b-sale', 'p', 'SALE', 1, 1, 0, 1, 1, NULL, 0, 90, 0, '2026-01-02'),
-      ('special-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'SPECIAL', 200, 0, 200, '2026-01-03'),
-      ('b2b-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'B2B', 0, 300, 0, '2026-01-04');
-    UPDATE tracker_transactions SET is_b2b = 1 WHERE id = 'legacy-b2b-sale';
+    INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, cost_basis_ore, total_costs_ore, transaction_context, is_b2b, vat_treatment, input_vat_ore, output_vat_ore, deductible_vat_ore, occurred_at) VALUES
+      ('private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'PRIVATE', NULL, 'CUSTOM_MANUAL', 500, 0, 500, '2026-01-01'),
+      ('private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'PRIVATE', NULL, 'DANISH_SALE_VAT', 0, 700, 0, '2026-01-02'),
+      ('legacy-private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, NULL, 0, 'CUSTOM_MANUAL', 600, 0, 600, '2026-01-02'),
+      ('legacy-private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, NULL, 0, 'DANISH_SALE_VAT', 0, 800, 0, '2026-01-02'),
+      ('legacy-b2b-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, NULL, 1, 'CUSTOM_MANUAL', 70, 0, 70, '2026-01-02'),
+      ('b2b-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'B2B', NULL, 'DANISH_PURCHASE_DEDUCTIBLE', 200, 0, 180, '2026-01-03'),
+      ('b2b-danish-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'B2B', NULL, 'DANISH_SALE_VAT', 0, 300, 0, '2026-01-04'),
+      ('b2b-eu-zero-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'B2B', NULL, 'EU_B2B_SALE_REVERSE_CHARGE', 0, 0, 0, '2026-01-04'),
+      ('special-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'SPECIAL', NULL, 'CUSTOM_MANUAL', 40, 0, 40, '2026-01-05'),
+      ('special-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'SPECIAL', NULL, 'CUSTOM_MANUAL', 0, 90, 0, '2026-01-05');
     INSERT INTO tracker_subscriptions (id, name, cost_ore, category, billing_period, next_payment_date, auto_renew, status) VALUES ('s', 'Service', 1, 'Software', 'MONTHLY', '2026-01-01', 0, 'ACTIVE');
     INSERT INTO tracker_subscription_payments (id, subscription_id, amount_ore, transaction_context, input_vat_ore, deductible_vat_ore, occurred_at, notes) VALUES
       ('private-payment', 's', 1, 'PRIVATE', 50, 50, '2026-01-01', ''),
@@ -199,7 +239,7 @@ test("VAT totals exclude effective PRIVATE rows, including NULL-context legacy V
   const query = route.match(/db\.prepare\(`(SELECT[\s\S]*?)`\)\.first<\{ inputVatOre/);
   assert.ok(query, "VAT endpoint must expose its aggregate query");
   const totals = Object.fromEntries(Object.entries(db.prepare(renderContextSql(query[1])).get()));
-  assert.deepEqual(totals, { inputVatOre: 250, deductibleInputVatOre: 250, outputVatOre: 400 });
+  assert.deepEqual(totals, { inputVatOre: 360, deductibleInputVatOre: 340, outputVatOre: 400 });
   db.close();
 });
 
