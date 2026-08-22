@@ -1,5 +1,6 @@
 import { calculatePrivateAmounts, calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type OperationalSaleLedgerInput } from "../../../../lib/tracker-accounting";
 import { operationalSalesById } from "../../../../lib/tracker-operational";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
   noStoreJson, optionalTrackerMoney, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
@@ -17,14 +18,14 @@ const transactionSelect = `t.id, t.product_id AS productId, p.name AS productNam
   t.vat_rate_bps AS vatRateBps, t.gross_amount_ore AS grossAmountOre, t.input_vat_ore AS inputVatOre,
   t.output_vat_ore AS outputVatOre, t.deductible_vat_ore AS deductibleVatOre,
   t.supplier_country AS supplierCountry, t.customer_country AS customerCountry,
-  t.is_b2b AS isB2b, t.transaction_context AS transactionContext, t.vat_id_reference AS vatIdReference,
+  t.is_b2b AS isB2b, ${effectiveTransactionContextSql("t.transaction_context", "t.is_b2b")} AS transactionContext, t.vat_id_reference AS vatIdReference,
   t.occurred_at AS occurredAt, t.created_at AS createdAt, t.updated_at AS updatedAt`;
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
   purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre,
   expected_sale_price_ore AS expectedSalePriceOre, listing_price_ore AS listingPriceOre,
   supplier, purchase_date AS purchaseDate, status, notes, created_at AS createdAt, updated_at AS updatedAt`;
@@ -101,7 +102,8 @@ async function loadProduct(db: D1Database, id: string) {
 async function loadSales(db: D1Database, productIdValue: string) {
   return (await db.prepare(`SELECT id, product_id AS productId, quantity, revenue_ore AS revenueOre,
     fee_ore AS feeOre, promoted_fee_ore AS promotedFeeOre, shipping_ore AS shippingOre,
-    other_costs_ore AS otherCostsOre, gross_amount_ore AS grossRevenueOre, transaction_context AS transactionContext,
+    other_costs_ore AS otherCostsOre, gross_amount_ore AS grossRevenueOre,
+    ${effectiveTransactionContextSql("transaction_context", "is_b2b")} AS transactionContext,
     occurred_at AS occurredAt, created_at AS createdAt
     FROM tracker_transactions WHERE product_id = ? AND type = 'SALE'
     ORDER BY occurred_at ASC, created_at ASC, id ASC`).bind(productIdValue).all<SaleRow>()).results;

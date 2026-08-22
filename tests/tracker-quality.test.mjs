@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { effectiveTransactionContextSql } from "../lib/tracker-context.ts";
 import ts from "typescript";
 import {
   analyticsDateRange, calendarDateInTimeZone, calculateOperatingResult, calculatePrivateAmounts, calculateProfit, calculateProfitCalculator,
@@ -11,6 +12,8 @@ import { trackerDa, trackerEn } from "../app/track/translations.ts";
 
 const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
+const renderContextSql = (sql) => sql.replace(/\$\{effectiveTransactionContextSql\("([^"]+)"(?:, "([^"]+)")?\)\}/g,
+  (_match, contextColumn, isB2bColumn) => effectiveTransactionContextSql(contextColumn, isB2bColumn));
 const sale = (overrides = {}) => ({ id: "sale-a", quantity: 1, revenueOre: 150_000, feeOre: 0,
   promotedFeeOre: 0, shippingOre: 0, otherCostsOre: 0, occurredAt: "2026-02-01", createdAt: "2026-02-01T10:00:00Z", ...overrides });
 
@@ -312,7 +315,7 @@ test("analytics product selection SQL executes against the tracker D1 schema", a
   const analytics = await source("app/api/track/analytics/route.ts");
   const match = analytics.match(/const productSelect = `([\s\S]*?)`;/);
   assert.ok(match, "Analytics must expose its product selection SQL");
-  assert.doesNotThrow(() => db.prepare(`SELECT ${match[1]} FROM tracker_products`).all());
+  assert.doesNotThrow(() => db.prepare(`SELECT ${renderContextSql(match[1])} FROM tracker_products`).all());
   db.close();
 });
 

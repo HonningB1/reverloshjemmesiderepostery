@@ -1,11 +1,12 @@
 import {
   cleanTrackerText, noStoreJson, trackerDb, trackerError, trackerUnavailable,
 } from "../../../../lib/tracker";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 import { createTrackerSubscriptionPaymentStatement, parseTrackerSubscriptionPaymentInput } from "../../../../lib/tracker-subscriptions";
 import type { TrackerSubscriptionPayment } from "../../../track/types";
 
 const paymentSelect = `p.id, p.subscription_id AS subscriptionId, s.name AS subscriptionName,
-  CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END AS amountOre,
+  CASE WHEN ${effectiveTransactionContextSql("p.transaction_context")} = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END AS amountOre,
   p.occurred_at AS occurredAt, p.notes, p.created_at AS createdAt`;
 
 export async function POST(request: Request) {

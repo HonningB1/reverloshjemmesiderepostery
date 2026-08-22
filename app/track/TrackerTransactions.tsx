@@ -2,6 +2,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { calculatePrivateAmounts, calculateVatAmounts, priceModeForTransactionContext, recalculateOperationalProductSales, recalculateProductSales } from "../../lib/tracker-accounting";
+import { effectiveTransactionContext } from "../../lib/tracker-context";
 import { useTrackerI18n } from "./i18n";
 import { vatTreatments, type PriceMode, type PurchasePurpose, type TrackerProduct, type TrackerTransaction, type TransactionContext, type TransactionType, type VatTreatment } from "./types";
 
@@ -199,20 +200,49 @@ export function TrackerTransactionDialog({ type, transaction, transactions, prod
 }
 
 function vatBadges(transaction: TrackerTransaction, t: (key: string) => string) {
-  if (transaction.transactionContext === "PRIVATE") return [t("Private / B2C")];
+  const context = effectiveTransactionContext(transaction.transactionContext, transaction.isB2b);
+  if (context === "PRIVATE") return [t("Private / B2C")];
   if (!transaction.vatTreatment) return [t("VAT unknown")];
   const badges = [transaction.type === "SALE" ? t("Sale") : t("Purchase")];
-  if (transaction.isB2b) badges.push(t("B2B"));
+  if (context === "B2B") badges.push(t("B2B"));
   if (transaction.vatTreatment === "EU_B2B_SALE_REVERSE_CHARGE") badges.push(t("EU 0% VAT"));
   else badges.push(`${rateInput(transaction.vatRateBps)}% ${t("VAT")}`);
   return badges;
+}
+
+function TransactionRow({ transaction, onEdit, onDelete }: {
+  transaction: TrackerTransaction; onEdit: () => void; onDelete: () => void;
+}) {
+  const { t } = useTrackerI18n();
+  const context = effectiveTransactionContext(transaction.transactionContext, transaction.isB2b);
+  const privateTransaction = context === "PRIVATE";
+  const isSale = transaction.type === "SALE";
+  const amountOre = isSale
+    ? privateTransaction ? transaction.operationalRevenueOre : transaction.revenueOre
+    : privateTransaction ? transaction.grossAmountOre ?? transaction.totalCostsOre : transaction.totalCostsOre;
+  const amountLabel = isSale
+    ? privateTransaction ? "Sale price" : "Revenue"
+    : privateTransaction ? "Purchase price" : "Purchase";
+  const vatOre = isSale ? transaction.outputVatOre ?? 0 : transaction.deductibleVatOre ?? 0;
+  const secondaryVat = !privateTransaction && transaction.vatTreatment
+    ? `${t("VAT")} ${money(vatOre)}` : null;
+  return <article className="track-transaction-v2">
+    <div className="track-transaction-identity">
+      <div className={`track-transaction-type ${transaction.type.toLowerCase()}`}><span>{isSale ? "↗" : "↓"}</span><small>{t(isSale ? "Sale" : "Purchase")}</small></div>
+      <div className="track-transaction-product"><strong>{transaction.productName}</strong><small>{isSale ? transaction.platform : transaction.supplier || t("Purchase")} · {date(transaction.occurredAt)}</small><div className="track-vat-badges">{vatBadges(transaction, t).map((badge) => <span key={badge}>{badge}</span>)}</div></div>
+    </div>
+    <div className="track-transaction-units"><small>{t("Units")}</small><strong>{transaction.quantity}</strong></div>
+    <div className="track-transaction-amount"><small>{t(amountLabel)}</small><strong>{money(amountOre)}</strong>{secondaryVat ? <span className="track-transaction-vat-meta">{secondaryVat}</span> : null}</div>
+    <div className="track-transaction-result"><small>{t(isSale ? "Sale profit" : "Cash out")}</small><strong className={isSale ? transaction.operationalProfitOre >= 0 ? "positive" : "negative" : ""}>{isSale ? money(transaction.operationalProfitOre) : `−${money(transaction.grossAmountOre ?? transaction.totalCostsOre)}`}</strong>{isSale ? <span>{percent(transaction.operationalProfitOre, transaction.operationalRevenueOre)} {t("Margin")} · {percent(transaction.operationalProfitOre, transaction.operationalCostBasisOre)} {t("ROI")}</span> : null}</div>
+    <div className="track-row-actions"><button type="button" onClick={onEdit}>{t("Edit")}</button><button type="button" className="danger" onClick={onDelete}>{t("Delete")}</button></div>
+  </article>;
 }
 
 export function TrackerTransactions({ transactions, onCompose, onRefresh }: {
   transactions: TrackerTransaction[];
   onCompose: (type: TransactionType, transaction?: TrackerTransaction) => void; onRefresh: () => Promise<void>;
 }) {
-  const { t, money, date, percent } = useTrackerI18n();
+  const { t } = useTrackerI18n();
   const [filter, setFilter] = useState<Filter>("ALL");
   const [deleting, setDeleting] = useState<TrackerTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -224,5 +254,5 @@ export function TrackerTransactions({ transactions, onCompose, onRefresh }: {
     try { await responseJson(await fetch("/api/track/transactions", { method: "DELETE", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: deleting.id }) })); setDeleting(null); await onRefresh(); }
     catch (removeError) { setError(t(removeError instanceof Error ? removeError.message : "TRACKER_REQUEST_FAILED")); setDeleting(null); }
   }
-  return <><header className="track-topbar"><div><p className="track-kicker">{t("Unified ledger")}</p><h1>{t("Transactions")}</h1><p className="track-heading-detail">{t("Purchases fund inventory. Sales release profit and reduce stock automatically.")}</p></div><div className="track-header-actions"><button className="track-button-secondary" type="button" onClick={() => onCompose("PURCHASE")}>↓ {t("Purchase")}</button><button className="track-button-primary" type="button" onClick={() => onCompose("SALE")}>↗ {t("Sale")}</button></div></header>{error ? <p className="track-form-error track-section-error" role="alert">{error}</p> : null}<div className="track-transaction-tabs" role="tablist" aria-label={t("Filter transactions")}>{(["ALL", "PURCHASE", "SALE"] as const).map((item) => <button role="tab" aria-selected={filter === item} className={filter === item ? "active" : ""} type="button" onClick={() => setFilter(item)} key={item}>{t(item === "ALL" ? "All" : item === "PURCHASE" ? "Purchases" : "Sales")}<span>{counts[item]}</span></button>)}</div><section className="track-table-panel">{visible.length ? <div className="track-transaction-list">{visible.map((transaction) => <article className="track-transaction-v2" key={transaction.id}><div className={`track-transaction-type ${transaction.type.toLowerCase()}`}><span>{transaction.type === "SALE" ? "↗" : "↓"}</span><small>{t(transaction.type === "SALE" ? "Sale" : "Purchase")}</small></div><div className="track-transaction-product"><strong>{transaction.productName}</strong><small>{transaction.type === "SALE" ? transaction.platform : transaction.supplier || t("Purchase")} · {date(transaction.occurredAt)}</small><div className="track-vat-badges">{vatBadges(transaction, t).map((badge) => <span key={badge}>{badge}</span>)}</div></div><div><small>{t("Units")}</small><strong>{transaction.quantity}</strong></div><div><small>{t(transaction.type === "SALE" ? transaction.transactionContext === "PRIVATE" ? "Sale price" : "Revenue" : transaction.transactionContext === "PRIVATE" ? "Purchase price" : "Purchase")}</small><strong>{money(transaction.type === "SALE" ? transaction.operationalRevenueOre : transaction.totalCostsOre)}</strong></div>{transaction.transactionContext === "PRIVATE" ? null : <div><small>{t("VAT")}</small><strong>{money(transaction.type === "SALE" ? transaction.outputVatOre ?? 0 : transaction.deductibleVatOre ?? 0)}</strong></div>}<div className="track-transaction-result"><small>{t(transaction.type === "SALE" ? "Sale profit" : "Cash out")}</small><strong className={transaction.type === "SALE" ? transaction.operationalProfitOre >= 0 ? "positive" : "negative" : ""}>{transaction.type === "SALE" ? money(transaction.operationalProfitOre) : `−${money(transaction.grossAmountOre ?? transaction.totalCostsOre)}`}</strong>{transaction.type === "SALE" ? <span>{percent(transaction.operationalProfitOre, transaction.operationalRevenueOre)} {t("Margin")} · {percent(transaction.operationalProfitOre, transaction.operationalCostBasisOre)} {t("ROI")}</span> : null}</div><div className="track-row-actions"><button type="button" onClick={() => onCompose(transaction.type, transaction)}>{t("Edit")}</button><button type="button" className="danger" onClick={() => setDeleting(transaction)}>{t("Delete")}</button></div></article>)}</div> : <div className="track-empty-state"><span>00</span><strong>{t("No transactions in this view")}</strong><p>{t("Record a purchase to add stock, or a sale to realise profit.")}</p></div>}</section>{deleting ? <Modal title={t("Delete transaction?")} kicker={t("Permanent ledger change")} onClose={() => setDeleting(null)}><div className="track-delete-copy"><p><strong>{deleting.productName}</strong><br />{t("This recalculates inventory, cost basis, profit, ROI and VAT. It cannot be undone.")}</p></div><footer className="track-dialog-actions"><button className="track-button-secondary" type="button" onClick={() => setDeleting(null)}>{t("Keep transaction")}</button><button className="track-button-danger" type="button" onClick={() => void remove()}>{t("Delete transaction")}</button></footer></Modal> : null}</>;
+  return <><header className="track-topbar"><div><p className="track-kicker">{t("Unified ledger")}</p><h1>{t("Transactions")}</h1><p className="track-heading-detail">{t("Purchases fund inventory. Sales release profit and reduce stock automatically.")}</p></div><div className="track-header-actions"><button className="track-button-secondary" type="button" onClick={() => onCompose("PURCHASE")}>↓ {t("Purchase")}</button><button className="track-button-primary" type="button" onClick={() => onCompose("SALE")}>↗ {t("Sale")}</button></div></header>{error ? <p className="track-form-error track-section-error" role="alert">{error}</p> : null}<div className="track-transaction-tabs" role="tablist" aria-label={t("Filter transactions")}>{(["ALL", "PURCHASE", "SALE"] as const).map((item) => <button role="tab" aria-selected={filter === item} className={filter === item ? "active" : ""} type="button" onClick={() => setFilter(item)} key={item}>{t(item === "ALL" ? "All" : item === "PURCHASE" ? "Purchases" : "Sales")}<span>{counts[item]}</span></button>)}</div><section className="track-table-panel">{visible.length ? <div className="track-transaction-list">{visible.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} onEdit={() => onCompose(transaction.type, transaction)} onDelete={() => setDeleting(transaction)} />)}</div> : <div className="track-empty-state"><span>00</span><strong>{t("No transactions in this view")}</strong><p>{t("Record a purchase to add stock, or a sale to realise profit.")}</p></div>}</section>{deleting ? <Modal title={t("Delete transaction?")} kicker={t("Permanent ledger change")} onClose={() => setDeleting(null)}><div className="track-delete-copy"><p><strong>{deleting.productName}</strong><br />{t("This recalculates inventory, cost basis, profit, ROI and VAT. It cannot be undone.")}</p></div><footer className="track-dialog-actions"><button className="track-button-secondary" type="button" onClick={() => setDeleting(null)}>{t("Keep transaction")}</button><button className="track-button-danger" type="button" onClick={() => void remove()}>{t("Delete transaction")}</button></footer></Modal> : null}</>;
 }

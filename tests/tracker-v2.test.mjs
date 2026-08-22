@@ -5,9 +5,12 @@ import test from "node:test";
 import {
   calculatePrivateAmounts, calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, vatPosition,
 } from "../lib/tracker-accounting.ts";
+import { effectiveTransactionContext, effectiveTransactionContextSql } from "../lib/tracker-context.ts";
 
 const root = new URL("../", import.meta.url);
 const source = (path) => readFile(new URL(path, root), "utf8");
+const renderContextSql = (sql) => sql.replace(/\$\{effectiveTransactionContextSql\("([^"]+)"(?:, "([^"]+)")?\)\}/g,
+  (_match, contextColumn, isB2bColumn) => effectiveTransactionContextSql(contextColumn, isB2bColumn));
 
 test("Danish deductible purchase stores gross cash, input VAT and net economic cost exactly", () => {
   assert.deepEqual(calculateVatAmounts({
@@ -160,7 +163,15 @@ test("PRIVATE/B2C amounts remain gross while explicit VAT calculations stay sepa
   assert.deepEqual({ gross: deductiblePurchase.grossAmountOre, cost: deductiblePurchase.economicPurchaseCostOre, inputVat: deductiblePurchase.inputVatOre }, { gross: 100_000, cost: 80_000, inputVat: 20_000 });
 });
 
-test("VAT totals exclude PRIVATE rows, including legacy VAT fields, while retaining B2B and SPECIAL VAT", async () => {
+test("legacy NULL context is PRIVATE unless its explicit legacy B2B checkbox is set", () => {
+  assert.equal(effectiveTransactionContext(null), "PRIVATE");
+  assert.equal(effectiveTransactionContext(null, 0), "PRIVATE");
+  assert.equal(effectiveTransactionContext(null, 1), "B2B");
+  assert.equal(effectiveTransactionContext("PRIVATE", 1), "PRIVATE");
+  assert.equal(effectiveTransactionContext("SPECIAL", 1), "SPECIAL");
+});
+
+test("VAT totals exclude effective PRIVATE rows, including NULL-context legacy VAT fields", async () => {
   const db = new DatabaseSync(":memory:");
   for (const migration of [
     "drizzle/0005_private_reselling_tracker.sql", "drizzle/0007_tracker_expenses_subscriptions.sql",
@@ -171,8 +182,12 @@ test("VAT totals exclude PRIVATE rows, including legacy VAT fields, while retain
     INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, cost_basis_ore, total_costs_ore, transaction_context, input_vat_ore, output_vat_ore, deductible_vat_ore, occurred_at) VALUES
       ('private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'PRIVATE', 500, 0, 500, '2026-01-01'),
       ('private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'PRIVATE', 0, 700, 0, '2026-01-02'),
+      ('legacy-private-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, NULL, 600, 0, 600, '2026-01-02'),
+      ('legacy-private-sale', 'p', 'SALE', 1, 1, 0, 1, 1, NULL, 0, 800, 0, '2026-01-02'),
+      ('legacy-b2b-sale', 'p', 'SALE', 1, 1, 0, 1, 1, NULL, 0, 90, 0, '2026-01-02'),
       ('special-purchase', 'p', 'PURCHASE', 1, 1, 0, 1, 1, 'SPECIAL', 200, 0, 200, '2026-01-03'),
       ('b2b-sale', 'p', 'SALE', 1, 1, 0, 1, 1, 'B2B', 0, 300, 0, '2026-01-04');
+    UPDATE tracker_transactions SET is_b2b = 1 WHERE id = 'legacy-b2b-sale';
     INSERT INTO tracker_subscriptions (id, name, cost_ore, category, billing_period, next_payment_date, auto_renew, status) VALUES ('s', 'Service', 1, 'Software', 'MONTHLY', '2026-01-01', 0, 'ACTIVE');
     INSERT INTO tracker_subscription_payments (id, subscription_id, amount_ore, transaction_context, input_vat_ore, deductible_vat_ore, occurred_at, notes) VALUES
       ('private-payment', 's', 1, 'PRIVATE', 50, 50, '2026-01-01', ''),
@@ -183,17 +198,18 @@ test("VAT totals exclude PRIVATE rows, including legacy VAT fields, while retain
   const route = await source("app/api/track/vat/route.ts");
   const query = route.match(/db\.prepare\(`(SELECT[\s\S]*?)`\)\.first<\{ inputVatOre/);
   assert.ok(query, "VAT endpoint must expose its aggregate query");
-  const totals = Object.fromEntries(Object.entries(db.prepare(query[1]).get()));
-  assert.deepEqual(totals, { inputVatOre: 250, deductibleInputVatOre: 250, outputVatOre: 310 });
+  const totals = Object.fromEntries(Object.entries(db.prepare(renderContextSql(query[1])).get()));
+  assert.deepEqual(totals, { inputVatOre: 250, deductibleInputVatOre: 250, outputVatOre: 400 });
   db.close();
 });
 
 test("PRIVATE UI removes VAT details while B2B/SPECIAL retain VAT controls", async () => {
   const [transactions, vat] = await Promise.all([source("app/track/TrackerTransactions.tsx"), source("app/api/track/vat/route.ts")]);
   assert.match(transactions, /if \(transactionContext === "PRIVATE"\) return null/);
-  assert.match(transactions, /transaction\.transactionContext === "PRIVATE" \? "Sale price"/);
-  assert.match(transactions, /transaction\.transactionContext === "PRIVATE" \? null : <div><small>\{t\("VAT"\)\}/);
-  assert.match(vat, /transaction_context IS NOT 'PRIVATE'/);
+  assert.match(transactions, /effectiveTransactionContext\(transaction\.transactionContext, transaction\.isB2b\)/);
+  assert.match(transactions, /className="track-transaction-amount"/);
+  assert.match(transactions, /className="track-transaction-vat-meta"/);
+  assert.match(vat, /effectiveTransactionContextSql/);
 });
 
 test("purchase-context migration is additive and leaves historical rows untouched", async () => {

@@ -1,4 +1,5 @@
 import { vatPosition } from "../../../../lib/tracker-accounting";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 import {
   noStoreJson, strictTrackerText, trackerDate, trackerDb, trackerError, trackerInteger,
   trackerUnavailable, vatSettlementId,
@@ -29,20 +30,20 @@ export async function GET() {
   try {
     const [vat, settlements] = await Promise.all([
       db.prepare(`SELECT
-        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' AND transaction_context IS NOT 'PRIVATE' THEN input_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
-        (SELECT COALESCE(SUM(CASE WHEN transaction_context IS NOT 'PRIVATE' THEN input_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' AND ${effectiveTransactionContextSql("transaction_context", "is_b2b")} IS NOT 'PRIVATE' THEN input_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(CASE WHEN ${effectiveTransactionContextSql("transaction_context")} IS NOT 'PRIVATE' THEN input_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
         (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
-          AND COALESCE(json_extract(source_details, '$.transactionContext'), '') IS NOT 'PRIVATE'
+          AND ${effectiveTransactionContextSql("json_extract(source_details, '$.transactionContext')")} IS NOT 'PRIVATE'
           THEN COALESCE(CAST(json_extract(source_details, '$.inputVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS inputVatOre,
-        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' AND transaction_context IS NOT 'PRIVATE' THEN deductible_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
-        (SELECT COALESCE(SUM(CASE WHEN transaction_context IS NOT 'PRIVATE' THEN deductible_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN type = 'PURCHASE' AND ${effectiveTransactionContextSql("transaction_context", "is_b2b")} IS NOT 'PRIVATE' THEN deductible_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(CASE WHEN ${effectiveTransactionContextSql("transaction_context")} IS NOT 'PRIVATE' THEN deductible_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
         (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
-          AND COALESCE(json_extract(source_details, '$.transactionContext'), '') IS NOT 'PRIVATE'
+          AND ${effectiveTransactionContextSql("json_extract(source_details, '$.transactionContext')")} IS NOT 'PRIVATE'
           THEN COALESCE(CAST(json_extract(source_details, '$.deductibleVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS deductibleInputVatOre,
-        (SELECT COALESCE(SUM(CASE WHEN transaction_context IS NOT 'PRIVATE' THEN output_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
-        (SELECT COALESCE(SUM(CASE WHEN transaction_context IS NOT 'PRIVATE' THEN output_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
+        (SELECT COALESCE(SUM(CASE WHEN ${effectiveTransactionContextSql("transaction_context", "is_b2b")} IS NOT 'PRIVATE' THEN output_vat_ore ELSE 0 END), 0) FROM tracker_transactions) +
+        (SELECT COALESCE(SUM(CASE WHEN ${effectiveTransactionContextSql("transaction_context")} IS NOT 'PRIVATE' THEN output_vat_ore ELSE 0 END), 0) FROM tracker_subscription_payments) +
         (SELECT COALESCE(SUM(CASE WHEN source_type = 'SUBSCRIPTION_PAYMENT' AND json_valid(source_details)
-          AND COALESCE(json_extract(source_details, '$.transactionContext'), '') IS NOT 'PRIVATE'
+          AND ${effectiveTransactionContextSql("json_extract(source_details, '$.transactionContext')")} IS NOT 'PRIVATE'
           THEN COALESCE(CAST(json_extract(source_details, '$.outputVatOre') AS INTEGER), 0) ELSE 0 END), 0) FROM tracker_expenses) AS outputVatOre`).first<{ inputVatOre: number; deductibleInputVatOre: number; outputVatOre: number }>(),
       db.prepare(`SELECT ${settlementSelect} FROM tracker_vat_settlements
         ORDER BY occurred_at DESC, created_at DESC`).all<TrackerVatSettlement>(),

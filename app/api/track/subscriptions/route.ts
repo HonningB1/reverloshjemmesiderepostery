@@ -2,11 +2,12 @@ import {
   cleanTrackerText, noStoreJson, trackerDb, trackerError, trackerUnavailable,
 } from "../../../../lib/tracker";
 import { createTrackerSubscriptionStatements, parseTrackerSubscriptionInput, parseTrackerSubscriptionPaymentInput } from "../../../../lib/tracker-subscriptions";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 import type { TrackerSubscription } from "../../../track/types";
 const subscriptionSelect = `s.id, s.name, s.cost_ore AS costOre, s.category,
   s.billing_period AS billingPeriod, s.next_payment_date AS nextPaymentDate,
   s.auto_renew AS autoRenew, s.status, s.notes, s.created_at AS createdAt, s.updated_at AS updatedAt,
-  COALESCE(SUM(CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END), 0) AS paidTotalOre, COUNT(p.id) AS paymentCount`;
+  COALESCE(SUM(CASE WHEN ${effectiveTransactionContextSql("p.transaction_context")} = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END), 0) AS paidTotalOre, COUNT(p.id) AS paymentCount`;
 
 async function selectedSubscription(db: D1Database, id: string) {
   const subscription = await db.prepare(`SELECT ${subscriptionSelect} FROM tracker_subscriptions s
@@ -92,7 +93,7 @@ export async function DELETE(request: Request) {
       db.prepare(`INSERT INTO tracker_expenses
         (id, name, amount_ore, category, occurred_at, notes, source_type, source_id, source_details, created_at, updated_at)
         SELECT 'exp_detached_' || p.id, s.name,
-          CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END,
+          CASE WHEN ${effectiveTransactionContextSql("p.transaction_context")} = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END,
           s.category, p.occurred_at, p.notes,
           'SUBSCRIPTION_PAYMENT', p.id,
           json_object('subscriptionId', s.id, 'subscriptionName', s.name, 'costOre', s.cost_ore,

@@ -1,4 +1,5 @@
 import type { AnalyticsPeriod, PriceMode, TransactionContext, TransactionType, VatTreatment } from "../app/track/types";
+import { effectiveTransactionContext } from "./tracker-context.ts";
 
 const MAX_MONEY_ORE = 100_000_000_000;
 
@@ -254,6 +255,7 @@ export type SaleLedgerResult = SaleLedgerInput & {
 export type OperationalSaleLedgerInput = SaleLedgerInput & {
   grossRevenueOre?: number | null;
   transactionContext?: TransactionContext | null;
+  isB2b?: boolean | number | null;
 };
 
 export type OperationalSaleLedgerResult = OperationalSaleLedgerInput & {
@@ -308,7 +310,7 @@ export function recalculateOperationalProductSales(
   for (const sale of sorted) {
     if (!Number.isSafeInteger(sale.quantity) || sale.quantity <= 0) throw new Error("Every sale quantity must be a positive whole number.");
     if (soldBefore + sale.quantity > product.quantity) throw new Error("This change would sell more units than the product purchase contains.");
-    const privateSale = sale.transactionContext === "PRIVATE";
+    const privateSale = effectiveTransactionContext(sale.transactionContext, sale.isB2b) === "PRIVATE";
     const allocatedShippingOre = Number(
       (BigInt(operationalShippingOre) * BigInt(soldBefore + sale.quantity)) / BigInt(product.quantity) -
       (BigInt(operationalShippingOre) * BigInt(soldBefore)) / BigInt(product.quantity),

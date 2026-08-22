@@ -1,6 +1,7 @@
 import { noStoreJson, trackerDb, trackerError, trackerUnavailable } from "../../../../lib/tracker";
 import { analyticsDateRange, calendarDateInTimeZone } from "../../../../lib/tracker-accounting";
 import { operationalSalesById, type OperationalProduct, type OperationalSale } from "../../../../lib/tracker-operational";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 import type { AnalyticsPeriod, ProductPerformance, ProfitPoint } from "../../../track/types";
 
 const periods = ["30D", "90D", "YTD", "ALL"] as const;
@@ -8,9 +9,9 @@ type OperatingRow = { date: string; amountOre: number };
 type SaleRow = OperationalSale & { productName: string };
 
 const productSelect = `id, quantity, purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre`;
 
 export async function GET(request: Request) {
@@ -26,11 +27,11 @@ export async function GET(request: Request) {
       db.prepare(`SELECT t.id, t.product_id AS productId, p.name AS productName, t.quantity,
         t.revenue_ore AS revenueOre, t.fee_ore AS feeOre, t.promoted_fee_ore AS promotedFeeOre,
         t.shipping_ore AS shippingOre, t.other_costs_ore AS otherCostsOre, t.gross_amount_ore AS grossRevenueOre,
-        t.transaction_context AS transactionContext, t.occurred_at AS occurredAt, t.created_at AS createdAt
+        ${effectiveTransactionContextSql("t.transaction_context", "t.is_b2b")} AS transactionContext, t.occurred_at AS occurredAt, t.created_at AS createdAt
         FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.type = 'SALE'`).all<SaleRow>(),
       db.prepare(`SELECT occurred_at AS date, amount_ore AS amountOre FROM tracker_expenses
         UNION ALL SELECT occurred_at AS date,
-          CASE WHEN transaction_context = 'PRIVATE' THEN COALESCE(entered_amount_ore, gross_amount_ore, amount_ore) ELSE amount_ore END
+          CASE WHEN ${effectiveTransactionContextSql("transaction_context")} = 'PRIVATE' THEN COALESCE(entered_amount_ore, gross_amount_ore, amount_ore) ELSE amount_ore END
           AS amountOre FROM tracker_subscription_payments`).all<OperatingRow>(),
     ]);
     const operational = operationalSalesById(products.results, sales.results);

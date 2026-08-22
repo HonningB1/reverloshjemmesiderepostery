@@ -3,12 +3,13 @@ import {
   trackerDate, trackerDb, trackerError, trackerInteger, trackerMoneyProduct, trackerStatus, trackerUnavailable, transactionId,
 } from "../../../../lib/tracker";
 import type { TrackerProduct, TrackerStatus } from "../../../track/types";
+import { effectiveTransactionContextSql } from "../../../../lib/tracker-context";
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
   purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
-  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+  COALESCE((SELECT CASE WHEN ${effectiveTransactionContextSql("purchase.transaction_context", "purchase.is_b2b")} = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
     FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre,
   expected_sale_price_ore AS expectedSalePriceOre, listing_price_ore AS listingPriceOre,
   supplier, purchase_date AS purchaseDate, status, notes, created_at AS createdAt, updated_at AS updatedAt`;
@@ -108,14 +109,16 @@ export async function PATCH(request: Request) {
     if (!existing) return noStoreJson({ error: "This inventory item no longer exists.", errorCode: "INVENTORY_NOT_FOUND" }, { status: 404 });
     const purchaseVat = await db.prepare(`SELECT quantity, unit_price_ore AS unitPriceOre,
       shipping_ore AS shippingOre, entered_unit_price_ore AS enteredUnitPriceOre,
-      entered_shipping_ore AS enteredShippingOre, transaction_context AS transactionContext, vat_treatment AS vatTreatment
+      entered_shipping_ore AS enteredShippingOre,
+      ${effectiveTransactionContextSql("transaction_context", "is_b2b")} AS transactionContext, vat_treatment AS vatTreatment
       FROM tracker_transactions WHERE product_id = ? AND type = 'PURCHASE' LIMIT 1`)
       .bind(id).first<PurchaseVatState>();
     const displayedPurchasePriceOre = purchaseVat?.transactionContext === "PRIVATE"
       ? purchaseVat.enteredUnitPriceOre ?? purchaseVat.unitPriceOre : purchaseVat?.unitPriceOre;
     const displayedPurchaseShippingOre = purchaseVat?.transactionContext === "PRIVATE"
       ? purchaseVat.enteredShippingOre ?? purchaseVat.shippingOre : purchaseVat?.shippingOre;
-    if (purchaseVat?.vatTreatment && (purchaseVat.quantity !== input.quantity ||
+    const vatRelevant = purchaseVat?.transactionContext !== "PRIVATE" && Boolean(purchaseVat?.vatTreatment);
+    if (vatRelevant && (purchaseVat.quantity !== input.quantity ||
         displayedPurchasePriceOre !== input.purchasePriceOre || displayedPurchaseShippingOre !== input.purchaseShippingOre)) {
       return noStoreJson({
         error: "Edit VAT-classified purchase amounts from Transactions so VAT and cost basis are recalculated together.",
@@ -130,8 +133,8 @@ export async function PATCH(request: Request) {
     if (input.quantity < soldQuantity) return noStoreJson({ error: `Quantity cannot be lower than the ${soldQuantity} units already sold.`, errorCode: "PURCHASE_BELOW_SOLD" }, { status: 409 });
     const remainingQuantity = input.quantity - soldQuantity;
     const finalStatus: TrackerStatus = remainingQuantity === 0 ? "SOLD" : input.status === "SOLD" ? "IN_STOCK" : input.status;
-    const storedPurchasePriceOre = purchaseVat?.vatTreatment ? existing.purchasePriceOre : input.purchasePriceOre;
-    const storedPurchaseShippingOre = purchaseVat?.vatTreatment ? existing.purchaseShippingOre : input.purchaseShippingOre;
+    const storedPurchasePriceOre = vatRelevant ? existing.purchasePriceOre : input.purchasePriceOre;
+    const storedPurchaseShippingOre = vatRelevant ? existing.purchaseShippingOre : input.purchaseShippingOre;
     const purchaseTotal = trackerMoneyProduct(storedPurchasePriceOre, input.quantity, storedPurchaseShippingOre);
     if (purchaseTotal === null) return noStoreJson({ error: "The total purchase amount is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     const statements = [
@@ -140,7 +143,7 @@ export async function PATCH(request: Request) {
         status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
         .bind(input.name, input.quantity, remainingQuantity, storedPurchasePriceOre, storedPurchaseShippingOre,
           input.expectedSalePriceOre, input.listingPriceOre, input.supplier, input.purchaseDate, finalStatus, input.notes, id),
-      purchaseVat?.vatTreatment
+      vatRelevant
         ? db.prepare(`UPDATE tracker_transactions SET supplier = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP
           WHERE product_id = ? AND type = 'PURCHASE'`).bind(input.supplier || null, input.purchaseDate, id)
         : db.prepare(`UPDATE tracker_transactions SET quantity = ?, unit_price_ore = ?, shipping_ore = ?, supplier = ?,
