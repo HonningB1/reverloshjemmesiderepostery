@@ -352,6 +352,8 @@ test("a populated transaction row executes its client render path with formatter
   assert.match(markup, /Legacy item/);
   assert.match(markup, /DKK 1000/);
   assert.match(markup, /2026-08-23/);
+  assert.match(markup, /class="track-transaction-product-name">Legacy item<\/strong>/);
+  assert.match(markup, /class="track-transaction-product-meta"><span>eBay<\/span> · <time dateTime="2026-08-23">2026-08-23<\/time><\/span>/);
 });
 
 test("Overview and Analytics ALL use the same event scope and accounting totals", async () => {

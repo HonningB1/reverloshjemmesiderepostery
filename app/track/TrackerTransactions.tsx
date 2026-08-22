@@ -223,13 +223,18 @@ export function TransactionRow({ transaction, onEdit, onDelete }: {
   const amountLabel = isSale
     ? privateTransaction ? "Sale price" : "Revenue"
     : privateTransaction ? "Purchase price" : "Purchase";
+  const counterparty = isSale ? transaction.platform || t("Sale") : transaction.supplier || t("Purchase");
   const vatOre = isSale ? transaction.outputVatOre ?? 0 : transaction.deductibleVatOre ?? 0;
   const secondaryVat = !privateTransaction && transaction.vatTreatment
     ? `${t("VAT")} ${money(vatOre)}` : null;
   return <article className="track-transaction-v2">
     <div className="track-transaction-identity">
       <div className={`track-transaction-type ${transaction.type.toLowerCase()}`}><span>{isSale ? "↗" : "↓"}</span><small>{t(isSale ? "Sale" : "Purchase")}</small></div>
-      <div className="track-transaction-product"><strong>{transaction.productName}</strong><small>{isSale ? transaction.platform : transaction.supplier || t("Purchase")} · {date(transaction.occurredAt)}</small><div className="track-vat-badges">{vatBadges(transaction, t).map((badge) => <span key={badge}>{badge}</span>)}</div></div>
+      <div className="track-transaction-product">
+        <strong className="track-transaction-product-name">{transaction.productName}</strong>
+        <span className="track-transaction-product-meta"><span>{counterparty}</span>{" · "}<time dateTime={transaction.occurredAt}>{date(transaction.occurredAt)}</time></span>
+        <div className="track-vat-badges">{vatBadges(transaction, t).map((badge) => <span key={badge}>{badge}</span>)}</div>
+      </div>
     </div>
     <div className="track-transaction-units"><small>{t("Units")}</small><strong>{transaction.quantity}</strong></div>
     <div className="track-transaction-amount"><small>{t(amountLabel)}</small><strong>{money(amountOre)}</strong>{secondaryVat ? <span className="track-transaction-vat-meta">{secondaryVat}</span> : null}</div>
