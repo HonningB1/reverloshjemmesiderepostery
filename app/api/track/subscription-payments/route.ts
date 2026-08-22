@@ -40,7 +40,11 @@ export async function PATCH(request: Request) {
       price_mode = ?, vat_treatment = ?, vat_rate_bps = ?, gross_amount_ore = ?, input_vat_ore = ?, output_vat_ore = ?,
       deductible_vat_ore = ?, supplier_country = ?, transaction_context = ?, occurred_at = ?, notes = ? WHERE id = ?`)
       .bind(input.subscriptionId, prepared.amounts.economicPurchaseCostOre, input.amountOre, input.priceMode, input.vatTreatment, input.vatRateBps,
-        prepared.amounts.grossAmountOre, prepared.amounts.inputVatOre, prepared.amounts.outputVatOre, prepared.amounts.deductibleVatOre, input.supplierCountry || null,
+        prepared.amounts.grossAmountOre,
+        input.transactionContext === "PRIVATE" ? null : prepared.amounts.inputVatOre,
+        input.transactionContext === "PRIVATE" ? null : prepared.amounts.outputVatOre,
+        input.transactionContext === "PRIVATE" ? null : prepared.amounts.deductibleVatOre,
+        input.supplierCountry || null,
         input.transactionContext, input.occurredAt, input.notes, id).run();
     if (result.meta.changes !== 1) return noStoreJson({ error: "This payment no longer exists.", errorCode: "SUBSCRIPTION_PAYMENT_NOT_FOUND" }, { status: 404 });
     const payment = await db.prepare(`SELECT ${paymentSelect} FROM tracker_subscription_payments p

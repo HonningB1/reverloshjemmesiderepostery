@@ -27,20 +27,20 @@ export type VatCalculation = {
   deductibleVatOre: number;
 };
 
-export function defaultTransactionVat(type: TransactionType, context: TransactionContext = "PRIVATE") {
-  if (context !== "PRIVATE") return null;
-  return type === "PURCHASE"
-    ? { priceMode: "VAT_INCLUSIVE" as const, vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION" as const, vatRateBps: 0 }
-    : { priceMode: "VAT_INCLUSIVE" as const, vatTreatment: "DANISH_SALE_VAT" as const, vatRateBps: 2500 };
+export function defaultTransactionVat(_type: TransactionType, context: TransactionContext = "PRIVATE") {
+  // PRIVATE/B2C is a gross cash context, not a VAT treatment. VAT metadata is
+  // intentionally absent unless the user explicitly selects B2B or SPECIAL.
+  if (context === "PRIVATE") return null;
+  return null;
 }
 
 export function transactionContextForVatTreatment(treatment: VatTreatment | null): TransactionContext {
   if (treatment === "EU_B2B_SALE_REVERSE_CHARGE") return "B2B";
-  if (treatment === "EU_PURCHASE_REVERSE_CHARGE" || treatment === "NO_VAT_OUTSIDE_SCOPE" || treatment === "CUSTOM_MANUAL") return "SPECIAL";
+  if (treatment && treatment !== "PRIVATE_PURCHASE_NO_DEDUCTION") return "SPECIAL";
   return "PRIVATE";
 }
 
-// A private/B2C amount is always the customer-facing or paid gross amount.
+// A private/B2C amount is always the final customer-facing or paid cash amount.
 // Special and B2B contexts retain their explicitly selected price basis.
 export function priceModeForTransactionContext(context: TransactionContext, proposed: PriceMode | null | undefined) {
   return context === "PRIVATE" ? "VAT_INCLUSIVE" as const : proposed ?? null;
@@ -92,6 +92,26 @@ function splitPurchaseCost(totalOre: number, enteredUnitOre: number, quantity: n
   return { unitPriceOre, shippingOre };
 }
 
+// PRIVATE/B2C amounts are final cash amounts. They must never be split into a
+// synthetic VAT base and VAT component, even if legacy form fields contained
+// VAT values. VAT-relevant contexts use calculateVatAmounts below instead.
+export function calculatePrivateAmounts(input: Pick<VatCalculationInput,
+  "type" | "quantity" | "enteredUnitPriceOre" | "enteredShippingOre" | "enteredTotalPriceOre">): VatCalculation {
+  const { type, quantity, enteredUnitPriceOre, enteredShippingOre } = input;
+  if (!Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 1_000_000) throw new Error("Quantity must be a positive whole number.");
+  safeMoney(enteredUnitPriceOre, "Unit price");
+  safeMoney(enteredShippingOre, "Shipping");
+  const goodsOre = type === "SALE" && input.enteredTotalPriceOre !== null && input.enteredTotalPriceOre !== undefined
+    ? safeMoney(input.enteredTotalPriceOre, "Sale total")
+    : multiplyMoney(enteredUnitPriceOre, quantity, "Transaction goods total");
+  const totalOre = safeMoney(goodsOre + (type === "PURCHASE" ? enteredShippingOre : 0), "Transaction total");
+  return type === "SALE"
+    ? { unitPriceOre: Math.round(goodsOre / quantity), shippingOre: enteredShippingOre, revenueOre: goodsOre,
+      economicPurchaseCostOre: 0, grossAmountOre: goodsOre, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0 }
+    : { unitPriceOre: enteredUnitPriceOre, shippingOre: enteredShippingOre, revenueOre: 0,
+      economicPurchaseCostOre: totalOre, grossAmountOre: totalOre, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0 };
+}
+
 export function calculateVatAmounts(input: VatCalculationInput): VatCalculation {
   const {
     type, quantity, enteredUnitPriceOre, enteredShippingOre, priceMode, vatTreatment, vatRateBps,
@@ -114,7 +134,8 @@ export function calculateVatAmounts(input: VatCalculationInput): VatCalculation 
     : multiplyMoney(enteredUnitPriceOre, quantity, "Transaction goods total");
   const enteredTotalOre = safeMoney(enteredGoodsOre + (type === "PURCHASE" ? enteredShippingOre : 0), "Transaction total");
   const custom = vatTreatment === "CUSTOM_MANUAL";
-  const noVat = vatTreatment === "NO_VAT_OUTSIDE_SCOPE" || vatTreatment === "EU_B2B_SALE_REVERSE_CHARGE";
+  const noVat = vatTreatment === "NO_VAT_OUTSIDE_SCOPE" || vatTreatment === "EU_B2B_SALE_REVERSE_CHARGE" ||
+    vatTreatment === "PRIVATE_PURCHASE_NO_DEDUCTION";
 
   if (type === "SALE") {
     let revenueOre: number;
@@ -269,8 +290,8 @@ export function recalculateProductSales(
 }
 
 // The tracker has two deliberately separate views of a sale. Accounting uses
-// VAT-exclusive revenue and deductible input VAT; PRIVATE performance uses the
-// actual VAT-inclusive cash paid and received. B2B and SPECIAL remain on their
+// VAT-accounting revenue and deductible input VAT; PRIVATE performance uses the
+// actual cash paid and received. B2B and SPECIAL remain on their
 // explicit accounting basis.
 export function recalculateOperationalProductSales(
   product: { quantity: number; purchasePriceOre: number; purchaseShippingOre: number; operationalPurchasePriceOre?: number | null; operationalPurchaseShippingOre?: number | null },

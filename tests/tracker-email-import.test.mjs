@@ -21,7 +21,7 @@ test("generic email parser extracts a documented single-item DKK order with ship
   assert.equal(parsed.orderNumber, "ABC-123"); assert.equal(parsed.purchaseDate, "2026-08-22"); assert.equal(parsed.currency, "DKK");
   assert.deepEqual(parsed.items[0], { name: "Starlink Mini", quantity: 3, unitAmount: { minor: 159000, currency: "DKK", raw: "1.590,00 DKK", source: "email_body", provenance: "DOCUMENTED" }, source: "email_body", provenance: "DOCUMENTED" });
   assert.equal(parsed.shipping?.minor, 0); assert.equal(parsed.shipping?.source, "email_body"); assert.equal(parsed.discount?.minor, 10000); assert.equal(parsed.vatAmount?.minor, 93400); assert.equal(parsed.vatRateBps, 2500);
-  const review = initialEmailPurchaseReview(parsed); assert.equal(review.items[0].unitPriceOre, 159000); assert.equal(review.items[0].shippingOre, 0); assert.equal(review.items[0].vatTreatment, "PRIVATE_PURCHASE_NO_DEDUCTION");
+  const review = initialEmailPurchaseReview(parsed); assert.equal(review.items[0].unitPriceOre, 159000); assert.equal(review.items[0].shippingOre, 0); assert.equal(review.items[0].vatTreatment, "");
 });
 
 test("multi-item, HTML-only, forwarded and foreign-currency emails remain review-first", () => {
@@ -37,7 +37,7 @@ test("multi-item, HTML-only, forwarded and foreign-currency emails remain review
 test("parser never invents supplier country or VAT treatment", () => {
   const parsed = order(`1 × Cable  10,00 DKK\nVAT: 2,00 DKK\nTotal: 10,00 DKK`);
   const review = initialEmailPurchaseReview(parsed);
-  assert.equal(parsed.supplier, "example.com"); assert.equal(review.items[0].supplierCountry, ""); assert.equal(review.items[0].vatTreatment, "PRIVATE_PURCHASE_NO_DEDUCTION");
+  assert.equal(parsed.supplier, "example.com"); assert.equal(review.items[0].supplierCountry, ""); assert.equal(review.items[0].vatTreatment, "");
   assert.ok(parsed.issues.includes("VAT_INCOMPLETE"));
 });
 
@@ -123,7 +123,7 @@ Amount paid
   ] });
   assert.equal(parsed.supplier, "Goatify by MMax GmbH"); assert.equal(parsed.purchaseDate, "2026-08-17"); assert.equal(parsed.receiptNumber, "2572-0086"); assert.equal(parsed.invoiceNumber, "4EAV72TW-0004"); assert.equal(parsed.currency, "EUR"); assert.equal(parsed.subtotal?.minor, 3599); assert.equal(parsed.vatAmount?.minor, 900); assert.equal(parsed.vatRateBps, 2500); assert.equal(parsed.total?.minor, 4499); assert.equal(parsed.amountPaid?.minor, 4499);
   assert.equal(parsed.items.length, 1); assert.equal(parsed.items[0].name, "Goatify"); assert.equal(parsed.items[0].quantity, 1); assert.equal(parsed.items[0].lineTotal?.minor, 4499); assert.equal(parsed.conflicts.includes("CONFLICTING_INVOICE_NUMBER"), false); assert.equal(parsed.conflicts.includes("CONFLICTING_SUBTOTAL"), false);
-  const review = initialEmailPurchaseReview(parsed); assert.deepEqual(review.items[0].sourceDocumentAmount, { minor: 4499, currency: "EUR", source: "email_body", provenance: "DOCUMENTED", kind: "LINE_TOTAL" }); assert.equal(review.items[0].unitPriceOre, null); assert.equal(review.fxRate, ""); assert.equal(review.items[0].vatTreatment, "PRIVATE_PURCHASE_NO_DEDUCTION");
+  const review = initialEmailPurchaseReview(parsed); assert.deepEqual(review.items[0].sourceDocumentAmount, { minor: 4499, currency: "EUR", source: "email_body", provenance: "DOCUMENTED", kind: "LINE_TOTAL" }); assert.equal(review.items[0].unitPriceOre, null); assert.equal(review.fxRate, ""); assert.equal(review.items[0].vatTreatment, "");
 });
 
 test("Goatify remains review-first but can become a subscription with documented VAT suggestions and no inventory statements", async () => {
@@ -131,7 +131,7 @@ test("Goatify remains review-first but can become a subscription with documented
   const parsed = parsePurchaseEmail({ from: "purchases@reverlo.nl", originalSender: "Goatify by MMax GmbH <invoice+statements@goatify.io>", subject: "Your receipt #2572-0086", textBody: body });
   const review = initialEmailPurchaseReview(parsed);
   assert.equal(review.purchasePurpose, "INVENTORY"); assert.equal(review.transactionContext, "PRIVATE"); assert.equal(parsed.vatRateBps, 2500); assert.equal(parsed.vatPriceModeSuggestion, "VAT_INCLUSIVE"); assert.equal(parsed.vatEvidenceSource, "email_body");
-  assert.equal(review.subscription?.costOre, null); assert.equal(review.fxRate, ""); assert.equal(review.subscription?.vatTreatment, "PRIVATE_PURCHASE_NO_DEDUCTION");
+  assert.equal(review.subscription?.costOre, null); assert.equal(review.fxRate, ""); assert.equal(review.subscription?.vatTreatment, "");
   const [imports, subscriptions] = await Promise.all([source("app/api/track/email-imports/route.ts"), source("lib/tracker-subscriptions.ts")]);
   assert.match(imports, /review\.purchasePurpose === "SUBSCRIPTION"/); assert.match(imports, /createTrackerSubscriptionStatements/); assert.doesNotMatch(subscriptions, /tracker_products/);
 });

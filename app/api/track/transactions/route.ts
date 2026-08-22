@@ -1,4 +1,4 @@
-import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type OperationalSaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { calculatePrivateAmounts, calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type OperationalSaleLedgerInput } from "../../../../lib/tracker-accounting";
 import { operationalSalesById } from "../../../../lib/tracker-operational";
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
@@ -51,7 +51,15 @@ function parseAccounting(payload: Record<string, unknown>, type: TransactionType
   const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
   if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
   const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
-  if (transactionContext === "PRIVATE" && requestedTreatment && transactionContextForVatTreatment(requestedTreatment) !== "PRIVATE") return null;
+  if (transactionContext === "PRIVATE") {
+    const enteredTotalPriceOre = parseOptionalMoney(payload.totalPriceOre);
+    if (enteredTotalPriceOre === undefined) return null;
+    try {
+      return { transactionContext, priceMode: null, vatTreatment: null, vatRateBps: null,
+        amounts: calculatePrivateAmounts({ type, quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre,
+          enteredTotalPriceOre: enteredTotalPriceOre ?? null }) };
+    } catch { return null; }
+  }
   const defaults = defaultTransactionVat(type, transactionContext);
   const proposedPriceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
   const priceMode = priceModeForTransactionContext(transactionContext, proposedPriceMode);
@@ -75,6 +83,10 @@ function parseAccounting(payload: Record<string, unknown>, type: TransactionType
   } catch {
     return null;
   }
+}
+
+function vatAmount(accounting: NonNullable<ReturnType<typeof parseAccounting>>, key: "inputVatOre" | "outputVatOre" | "deductibleVatOre") {
+  return accounting.transactionContext === "PRIVATE" ? null : accounting.amounts[key];
 }
 
 function statusForRemaining(status: TrackerStatus, remaining: number): TrackerStatus {
@@ -198,7 +210,7 @@ export async function POST(request: Request) {
           .bind(id, selectedProductId, quantity, accounting.amounts.unitPriceOre, shippingOre, platform, feeOre,
             promotedFeeOre, otherCostsOre, sale.costBasisOre, sale.revenueOre, sale.totalCostsOre, sale.netProfitOre,
             notes, enteredUnitPriceOre, shippingOre, parseOptionalMoney(payload.totalPriceOre), accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
-            accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
+            vatAmount(accounting, "inputVatOre"), vatAmount(accounting, "outputVatOre"), vatAmount(accounting, "deductibleVatOre"),
             customerCountry || null, isB2b ? 1 : 0, accounting.transactionContext, vatIdReference || null, occurredAt),
         db.prepare(`UPDATE tracker_products SET remaining_quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`).bind(ledger.remainingQuantity, statusForRemaining(product.status, ledger.remainingQuantity), selectedProductId),
@@ -260,7 +272,7 @@ export async function PATCH(request: Request) {
             accounting.amounts.economicPurchaseCostOre, accounting.amounts.economicPurchaseCostOre, notes,
             enteredUnitPriceOre, shippingOre,
             accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
-            accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
+            vatAmount(accounting, "inputVatOre"), vatAmount(accounting, "outputVatOre"), vatAmount(accounting, "deductibleVatOre"),
             supplierCountry || null, accounting.transactionContext, occurredAt, id),
         ...saleRecalculationStatements(db, ledger.sales),
       ]);
@@ -316,7 +328,7 @@ export async function PATCH(request: Request) {
             otherCostsOre, current.costBasisOre, current.revenueOre, current.totalCostsOre, current.netProfitOre, notes,
             enteredUnitPriceOre, shippingOre, parseOptionalMoney(payload.totalPriceOre),
             accounting.priceMode, accounting.vatTreatment, accounting.vatRateBps, accounting.amounts.grossAmountOre,
-            accounting.amounts.inputVatOre, accounting.amounts.outputVatOre, accounting.amounts.deductibleVatOre,
+            vatAmount(accounting, "inputVatOre"), vatAmount(accounting, "outputVatOre"), vatAmount(accounting, "deductibleVatOre"),
             customerCountry || null, isB2b ? 1 : 0, accounting.transactionContext, vatIdReference || null, occurredAt, id),
         db.prepare(`UPDATE tracker_products SET remaining_quantity = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
           .bind(oldLedger.remainingQuantity, statusForRemaining(oldProduct.status, oldLedger.remainingQuantity), oldProduct.id),

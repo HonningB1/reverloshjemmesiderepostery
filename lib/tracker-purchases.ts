@@ -1,11 +1,11 @@
-import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, transactionContextForVatTreatment } from "./tracker-accounting.ts";
+import { calculatePrivateAmounts, calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, transactionContextForVatTreatment } from "./tracker-accounting.ts";
 import { productId, strictTrackerText, trackerDate, trackerInteger, trackerPriceMode, trackerTransactionContext, trackerVatTreatment, transactionId } from "./tracker.ts";
 import type { PriceMode, TransactionContext, VatTreatment } from "../app/track/types.ts";
 
 export type TrackerPurchaseInput = {
   name: string; quantity: number; unitPriceOre: number; shippingOre: number; supplier: string;
-  supplierCountry: string; occurredAt: string; notes: string; priceMode: PriceMode; vatTreatment: VatTreatment;
-  vatRateBps: number; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null; transactionContext: TransactionContext;
+  supplierCountry: string; occurredAt: string; notes: string; priceMode: PriceMode | null; vatTreatment: VatTreatment | null;
+  vatRateBps: number | null; inputVatOre: number | null; outputVatOre: number | null; deductibleVatOre: number | null; transactionContext: TransactionContext;
 };
 
 function country(value: unknown) {
@@ -30,6 +30,13 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
   if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
   const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
+  if (transactionContext === "PRIVATE") {
+    if (!name || quantity === null || unitPriceOre === null || shippingOre === null || supplier === null || supplierCountry === null || !occurredAt || notes === null) return null;
+    try { calculatePrivateAmounts({ type: "PURCHASE", quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre }); }
+    catch { return null; }
+    return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes,
+      priceMode: null, vatTreatment: null, vatRateBps: null, inputVatOre: null, outputVatOre: null, deductibleVatOre: null, transactionContext };
+  }
   const defaults = defaultTransactionVat("PURCHASE", transactionContext);
   const proposedPriceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
   const priceMode = priceModeForTransactionContext(transactionContext, proposedPriceMode);
@@ -48,10 +55,16 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes, priceMode, vatTreatment, vatRateBps, inputVatOre, outputVatOre, deductibleVatOre, transactionContext };
 }
 
+function purchaseAmounts(input: TrackerPurchaseInput) {
+  return input.transactionContext === "PRIVATE"
+    ? calculatePrivateAmounts({ type: "PURCHASE", quantity: input.quantity, enteredUnitPriceOre: input.unitPriceOre, enteredShippingOre: input.shippingOre })
+    : calculateVatAmounts({ type: "PURCHASE", quantity: input.quantity, enteredUnitPriceOre: input.unitPriceOre,
+      enteredShippingOre: input.shippingOre, priceMode: input.priceMode!, vatTreatment: input.vatTreatment!, vatRateBps: input.vatRateBps!,
+      manualInputVatOre: input.inputVatOre, manualOutputVatOre: input.outputVatOre, manualDeductibleVatOre: input.deductibleVatOre });
+}
+
 export function createTrackerPurchaseStatements(db: D1Database, input: TrackerPurchaseInput) {
-  const amounts = calculateVatAmounts({ type: "PURCHASE", quantity: input.quantity, enteredUnitPriceOre: input.unitPriceOre,
-    enteredShippingOre: input.shippingOre, priceMode: input.priceMode, vatTreatment: input.vatTreatment, vatRateBps: input.vatRateBps,
-    manualInputVatOre: input.inputVatOre, manualOutputVatOre: input.outputVatOre, manualDeductibleVatOre: input.deductibleVatOre });
+  const amounts = purchaseAmounts(input);
   const id = productId(); const purchaseTransactionId = transactionId();
   return {
     productId: id, transactionId: purchaseTransactionId,
@@ -67,8 +80,11 @@ export function createTrackerPurchaseStatements(db: D1Database, input: TrackerPu
         VALUES (?, ?, 'PURCHASE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
         .bind(purchaseTransactionId, id, input.quantity, amounts.unitPriceOre, amounts.shippingOre, input.supplier || null,
           amounts.economicPurchaseCostOre, amounts.economicPurchaseCostOre, input.notes, input.unitPriceOre, input.shippingOre,
-          input.priceMode, input.vatTreatment, input.vatRateBps, amounts.grossAmountOre, amounts.inputVatOre, amounts.outputVatOre,
-          amounts.deductibleVatOre, input.supplierCountry || null, input.transactionContext, input.occurredAt),
+          input.priceMode, input.vatTreatment, input.vatRateBps, amounts.grossAmountOre,
+          input.transactionContext === "PRIVATE" ? null : amounts.inputVatOre,
+          input.transactionContext === "PRIVATE" ? null : amounts.outputVatOre,
+          input.transactionContext === "PRIVATE" ? null : amounts.deductibleVatOre,
+          input.supplierCountry || null, input.transactionContext, input.occurredAt),
     ],
   };
 }
