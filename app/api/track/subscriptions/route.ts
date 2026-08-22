@@ -73,3 +73,26 @@ export async function PATCH(request: Request) {
     return trackerError(error, "Unable to update the subscription.");
   }
 }
+
+export async function DELETE(request: Request) {
+  const db = trackerDb();
+  if (!db) return trackerUnavailable();
+  try {
+    const payload = await request.json() as Record<string, unknown>;
+    const id = cleanTrackerText(payload.id, 80, true);
+    if (!id) return noStoreJson({ error: "Invalid subscription.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
+    const paymentCount = await db.prepare("SELECT COUNT(*) AS count FROM tracker_subscription_payments WHERE subscription_id = ?")
+      .bind(id).first<{ count: number }>();
+    if (Number(paymentCount?.count ?? 0) > 0) {
+      return noStoreJson({
+        error: "Subscriptions with payment history cannot be deleted. Archive it to preserve the expense ledger.",
+        errorCode: "SUBSCRIPTION_HAS_PAYMENTS",
+      }, { status: 409 });
+    }
+    const result = await db.prepare("DELETE FROM tracker_subscriptions WHERE id = ?").bind(id).run();
+    if (result.meta.changes !== 1) return noStoreJson({ error: "This subscription no longer exists.", errorCode: "SUBSCRIPTION_NOT_FOUND" }, { status: 404 });
+    return noStoreJson({ id, deleted: true });
+  } catch (error) {
+    return trackerError(error, "Unable to delete the subscription.");
+  }
+}

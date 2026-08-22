@@ -2,6 +2,19 @@ export const trackerStatuses = ["IN_STOCK", "LISTED", "RESERVED", "SOLD"] as con
 export type TrackerStatus = (typeof trackerStatuses)[number];
 export type TransactionType = "PURCHASE" | "SALE";
 export type AnalyticsPeriod = "30D" | "90D" | "YTD" | "ALL";
+export const priceModes = ["VAT_EXCLUSIVE", "VAT_INCLUSIVE"] as const;
+export type PriceMode = (typeof priceModes)[number];
+export const vatTreatments = [
+  "DANISH_PURCHASE_DEDUCTIBLE",
+  "DANISH_SALE_VAT",
+  "EU_B2B_SALE_REVERSE_CHARGE",
+  "EU_PURCHASE_REVERSE_CHARGE",
+  "PRIVATE_PURCHASE_NO_DEDUCTION",
+  "NO_VAT_OUTSIDE_SCOPE",
+  "CUSTOM_MANUAL",
+] as const;
+export type VatTreatment = (typeof vatTreatments)[number];
+export type VatSettlementDirection = "PAID" | "RECEIVED";
 export const billingPeriods = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "CUSTOM"] as const;
 export type BillingPeriod = (typeof billingPeriods)[number];
 export type SubscriptionStatus = "ACTIVE" | "ARCHIVED";
@@ -40,8 +53,49 @@ export type TrackerTransaction = {
   revenueOre: number;
   totalCostsOre: number;
   netProfitOre: number;
+  notes: string;
+  enteredUnitPriceOre: number | null;
+  enteredShippingOre: number | null;
+  enteredTotalPriceOre: number | null;
+  priceMode: PriceMode | null;
+  vatTreatment: VatTreatment | null;
+  vatRateBps: number | null;
+  grossAmountOre: number | null;
+  inputVatOre: number | null;
+  outputVatOre: number | null;
+  deductibleVatOre: number | null;
+  supplierCountry: string | null;
+  customerCountry: string | null;
+  isB2b: boolean | number | null;
+  vatIdReference: string | null;
   occurredAt: string;
   createdAt: string;
+  updatedAt: string | null;
+};
+
+export type TrackerVatSettlement = {
+  id: string;
+  direction: VatSettlementDirection;
+  amountOre: number;
+  occurredAt: string;
+  reference: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VatData = {
+  totals: {
+    inputVatOre: number;
+    deductibleInputVatOre: number;
+    outputVatOre: number;
+    paidSettlementsOre: number;
+    receivedSettlementsOre: number;
+    openPositionOre: number;
+    receivableOre: number;
+    payableOre: number;
+  };
+  settlements: TrackerVatSettlement[];
 };
 
 export type ProfitPoint = {

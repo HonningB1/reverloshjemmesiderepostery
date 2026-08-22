@@ -129,7 +129,7 @@ test("import ledger migration is additive and isolated from public Reverlo data"
 test("generated SQL imports every supported record and rejects an identical second import", async () => {
   const db = new DatabaseSync(":memory:");
   try {
-    for (const migrationName of ["0005_private_reselling_tracker.sql", "0006_tracker_import_ledger.sql", "0007_tracker_expenses_subscriptions.sql"]) {
+    for (const migrationName of ["0005_private_reselling_tracker.sql", "0006_tracker_import_ledger.sql", "0007_tracker_expenses_subscriptions.sql", "0008_tracker_vat_and_transaction_editing.sql"]) {
       const migration = await readFile(new URL(`../drizzle/${migrationName}`, import.meta.url), "utf8");
       db.exec(migration.replaceAll("--> statement-breakpoint", ""));
     }

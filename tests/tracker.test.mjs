@@ -22,9 +22,9 @@ test("sales are validated against inventory and update remaining stock in the sa
   const route = await source("app/api/track/transactions/route.ts");
   assert.match(route, /product\.remainingQuantity < quantity/);
   assert.match(route, /db\.batch/);
-  assert.match(route, /WHERE id = \? AND remaining_quantity >= \?/);
-  assert.match(route, /remaining_quantity = remaining_quantity - \?/);
-  assert.match(route, /THEN 'SOLD'/);
+  assert.match(route, /recalculateProductSales/);
+  assert.match(route, /remaining_quantity = \?/);
+  assert.match(route, /statusForRemaining/);
   assert.match(route, /cost_basis_ore/);
   assert.match(route, /net_profit_ore/);
 });

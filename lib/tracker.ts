@@ -1,5 +1,12 @@
 import { env } from "cloudflare:workers";
-import { trackerStatuses, type TrackerStatus } from "../app/track/types";
+import {
+  priceModes,
+  trackerStatuses,
+  vatTreatments,
+  type PriceMode,
+  type TrackerStatus,
+  type VatTreatment,
+} from "../app/track/types";
 
 const MAX_MONEY_ORE = 100_000_000_000;
 
@@ -14,7 +21,8 @@ export function trackerUnavailable() {
 export function trackerError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("no such table") || message.includes("tracker_products") || message.includes("tracker_transactions") ||
-      message.includes("tracker_expenses") || message.includes("tracker_subscriptions") || message.includes("tracker_subscription_payments")) return trackerUnavailable();
+      message.includes("tracker_expenses") || message.includes("tracker_subscriptions") ||
+      message.includes("tracker_subscription_payments") || message.includes("tracker_vat_settlements")) return trackerUnavailable();
   console.error("Reverlo tracker request failed", { message: message.slice(0, 300) });
   return Response.json({ error: fallback }, { status: 500 });
 }
@@ -29,6 +37,13 @@ export function noStoreJson(value: unknown, init?: ResponseInit) {
 export function cleanTrackerText(value: unknown, maxLength: number, required = false) {
   const result = typeof value === "string" ? value.trim().slice(0, maxLength) : "";
   return required && !result ? null : result;
+}
+
+export function strictTrackerText(value: unknown, maxLength: number, required = false) {
+  if (typeof value !== "string") return required ? null : "";
+  const result = value.trim();
+  if ((required && !result) || result.length > maxLength) return null;
+  return result;
 }
 
 export function trackerInteger(value: unknown, { min = 0, max = MAX_MONEY_ORE }: { min?: number; max?: number } = {}) {
@@ -56,6 +71,20 @@ export function trackerStatus(value: unknown): TrackerStatus | null {
   return typeof value === "string" && trackerStatuses.includes(value as TrackerStatus) ? value as TrackerStatus : null;
 }
 
+export function trackerPriceMode(value: unknown): PriceMode | null {
+  return typeof value === "string" && priceModes.includes(value as PriceMode) ? value as PriceMode : null;
+}
+
+export function trackerVatTreatment(value: unknown): VatTreatment | null {
+  return typeof value === "string" && vatTreatments.includes(value as VatTreatment) ? value as VatTreatment : null;
+}
+
+export function trackerBoolean(value: unknown) {
+  if (value === true || value === 1 || value === "1") return true;
+  if (value === false || value === 0 || value === "0") return false;
+  return null;
+}
+
 export function productId() {
   return `prd_${crypto.randomUUID()}`;
 }
@@ -74,6 +103,10 @@ export function subscriptionId() {
 
 export function subscriptionPaymentId() {
   return `subpay_${crypto.randomUUID()}`;
+}
+
+export function vatSettlementId() {
+  return `vatset_${crypto.randomUUID()}`;
 }
 
 export function allocatedShipping(totalShippingOre: number, totalQuantity: number, soldBefore: number, soldQuantity: number) {
