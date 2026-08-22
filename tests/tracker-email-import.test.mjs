@@ -144,9 +144,24 @@ test("PDF import migration is additive and makes attachment fingerprints idempot
   const db = new DatabaseSync(":memory:"); db.exec(base); db.exec(migration); db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, attachment_fingerprint) VALUES ('one', 'NEEDS_REVIEW', 'source-one', 'attachment-one')").run(); assert.throws(() => db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, attachment_fingerprint) VALUES ('two', 'NEEDS_REVIEW', 'source-two', 'attachment-one')").run()); db.close();
 });
 
+test("rejecting an unimported email hard-deletes its dedupe keys and cascades its review lines", async () => {
+  const [base, pdfMigration, route] = await Promise.all([source("drizzle/0010_tracker_email_purchase_imports.sql"), source("drizzle/0011_tracker_email_pdf_imports.sql"), source("app/api/track/email-imports/route.ts")]);
+  const db = new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys = ON"); db.exec(base); db.exec(pdfMigration); db.exec("CREATE TABLE tracker_products (id TEXT PRIMARY KEY); CREATE TABLE tracker_transactions (id TEXT PRIMARY KEY)");
+  const insert = db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, message_id, order_key, attachment_fingerprint) VALUES (?, ?, 'mail-fingerprint', 'message-id', 'goatify:invoice-1', 'attachment-fingerprint')");
+  insert.run("review", "NEEDS_REVIEW"); db.prepare("INSERT INTO tracker_email_import_items (id, email_import_id, position) VALUES ('review-line', 'review', 0)").run();
+  const duplicate = db.prepare("SELECT id FROM tracker_email_imports WHERE source_fingerprint = 'mail-fingerprint' OR message_id = 'message-id' OR order_key = 'goatify:invoice-1' OR attachment_fingerprint = 'attachment-fingerprint'").all(); assert.equal(duplicate.length, 1);
+  const removed = db.prepare("DELETE FROM tracker_email_imports WHERE id = ? AND status IN ('RECEIVED', 'NEEDS_REVIEW', 'READY', 'DUPLICATE', 'REJECTED', 'FAILED')").run("review"); assert.equal(removed.changes, 1); assert.equal(db.prepare("SELECT COUNT(*) AS count FROM tracker_email_import_items").get().count, 0);
+  assert.doesNotThrow(() => insert.run("replacement", "NEEDS_REVIEW")); assert.equal(db.prepare("SELECT id FROM tracker_email_imports WHERE id = 'replacement'").get().id, "replacement");
+  const imported = db.prepare("INSERT INTO tracker_email_imports (id, status, source_fingerprint, message_id, order_key, attachment_fingerprint) VALUES ('imported', 'IMPORTED', 'imported-fingerprint', 'imported-message', 'goatify:invoice-imported', 'imported-attachment')"); imported.run();
+  const protectedRow = db.prepare("DELETE FROM tracker_email_imports WHERE id = ? AND status IN ('RECEIVED', 'NEEDS_REVIEW', 'READY', 'DUPLICATE', 'REJECTED', 'FAILED')").run("imported"); assert.equal(protectedRow.changes, 0); assert.equal(db.prepare("SELECT status FROM tracker_email_imports WHERE id = 'imported'").get().status, "IMPORTED");
+  const rejectBranch = route.slice(route.indexOf('if (action === "REJECT")'), route.indexOf("const parsed =")); assert.match(rejectBranch, /DELETE FROM tracker_email_imports/); assert.match(rejectBranch, /status IN \('RECEIVED', 'NEEDS_REVIEW', 'READY', 'DUPLICATE', 'REJECTED', 'FAILED'\)/); assert.doesNotMatch(rejectBranch, /tracker_(?:products|transactions|expenses|vat)/); db.close();
+});
+
 test("ingestion validates secrets, limits, payloads and duplicate fingerprints before any purchase creation", async () => {
   const [ingest, imports, worker] = await Promise.all([source("app/api/track/email-ingest/route.ts"), source("app/api/track/email-imports/route.ts"), source("email-worker/src/index.ts")]);
   assert.match(ingest, /sameSecret/); assert.match(ingest, /x-reverlo-email-ingest-secret/); assert.match(ingest, /MAX_REQUEST_BYTES/); assert.match(ingest, /attachment_fingerprint/); assert.match(ingest, /status: "DUPLICATE"/);
   assert.match(imports, /status = 'PROCESSING'/); assert.match(imports, /status = 'READY'/); assert.match(imports, /createTrackerPurchaseStatements/); assert.match(imports, /status = 'IMPORTED'/);
   assert.match(worker, /PostalMime\.parse\(message\.raw\)/); assert.match(worker, /message\.rawSize/); assert.match(worker, /MAX_TOTAL_PDF_BYTES/); assert.match(worker, /extractPdfText/); assert.match(worker, /REVERLO_EMAIL_INGEST_SECRET/); assert.match(worker, /CF-Access-Client-Id/);
+  for (const marker of ["[EMAIL] received", "[MIME] parse start", "[MIME] parse complete", "[PDF] attachments found", "[PDF] extraction start", "[PDF] extraction complete", "[PARSER] forwarded metadata complete", "[INGEST] request start", "[INGEST] response", "[EMAIL] complete"]) assert.match(worker, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(worker, /response\.json\(\)/); assert.match(worker, /intakeStatus/); assert.match(worker, /ingestSecretConfigured: Boolean/); assert.match(worker, /accessTokenConfigured: Boolean/);
 });

@@ -58,8 +58,13 @@ export async function PATCH(request: Request) {
     if (!entry) return noStoreJson({ error: "Email import was not found.", errorCode: "EMAIL_IMPORT_NOT_FOUND" }, { status: 404 });
     if (action === "REJECT") {
       if (entry.status === "IMPORTED") return noStoreJson({ error: "An imported purchase cannot be rejected here.", errorCode: "EMAIL_IMPORT_ALREADY_IMPORTED" }, { status: 409 });
-      await db.prepare("UPDATE tracker_email_imports SET status = 'REJECTED', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
-      return noStoreJson({ id, status: "REJECTED" });
+      const removed = await db.prepare(`DELETE FROM tracker_email_imports
+        WHERE id = ? AND status IN ('RECEIVED', 'NEEDS_REVIEW', 'READY', 'DUPLICATE', 'REJECTED', 'FAILED')`).bind(id).run();
+      if (removed.meta.changes === 1) return noStoreJson({ id, status: "REJECTED", removed: true });
+      const current = await db.prepare("SELECT status FROM tracker_email_imports WHERE id = ?").bind(id).first<{ status: EmailImportStatus }>();
+      if (!current) return noStoreJson({ error: "Email import was not found.", errorCode: "EMAIL_IMPORT_NOT_FOUND" }, { status: 404 });
+      if (current.status === "IMPORTED") return noStoreJson({ error: "An imported purchase cannot be rejected here.", errorCode: "EMAIL_IMPORT_ALREADY_IMPORTED" }, { status: 409 });
+      return noStoreJson({ error: "This email import cannot be rejected while it is being processed.", errorCode: "EMAIL_IMPORT_REJECT_UNAVAILABLE" }, { status: 409 });
     }
     const parsed = json<ParsedPurchaseEmail>(entry.parsedJson, {} as ParsedPurchaseEmail);
     if (action === "REVIEW") {
