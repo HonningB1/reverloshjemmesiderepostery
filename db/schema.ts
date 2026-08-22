@@ -211,12 +211,17 @@ export const trackerExpenses = sqliteTable(
     category: text("category").notNull(),
     occurredAt: text("occurred_at").notNull(),
     notes: text("notes").notNull().default(""),
+    sourceType: text("source_type", { enum: ["SUBSCRIPTION_PAYMENT"] }),
+    sourceId: text("source_id"),
+    sourceDetails: text("source_details"),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
     index("idx_tracker_expenses_date").on(table.occurredAt),
     index("idx_tracker_expenses_category").on(table.category),
+    uniqueIndex("idx_tracker_expenses_source").on(table.sourceType, table.sourceId)
+      .where(sql`${table.sourceType} IS NOT NULL AND ${table.sourceId} IS NOT NULL`),
     check("tracker_expenses_amount_positive", sql`${table.amountOre} > 0`),
   ],
 );

@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (!db) return trackerUnavailable();
   try {
     const input = parseSubscription(await request.json() as Record<string, unknown>);
-    if (!input) return noStoreJson({ error: "Complete the subscription with a name, positive DKK cost, category, billing period and renewal date." }, { status: 400 });
+    if (!input) return noStoreJson({ error: "Complete the subscription with a name, positive DKK cost, category, billing period and renewal date.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
     const id = subscriptionId();
     await db.prepare(`INSERT INTO tracker_subscriptions
       (id, name, cost_ore, category, billing_period, next_payment_date, auto_renew, status, notes)
@@ -62,12 +62,12 @@ export async function PATCH(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const id = cleanTrackerText(payload.id, 80, true);
     const input = parseSubscription(payload);
-    if (!id || !input) return noStoreJson({ error: "The subscription update contains invalid values." }, { status: 400 });
+    if (!id || !input) return noStoreJson({ error: "The subscription update contains invalid values.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
     const result = await db.prepare(`UPDATE tracker_subscriptions SET name = ?, cost_ore = ?, category = ?,
       billing_period = ?, next_payment_date = ?, auto_renew = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`).bind(input.name, input.costOre, input.category, input.billingPeriod, input.nextPaymentDate,
         input.autoRenew ? 1 : 0, input.status, input.notes, id).run();
-    if (result.meta.changes !== 1) return noStoreJson({ error: "This subscription no longer exists." }, { status: 404 });
+    if (result.meta.changes !== 1) return noStoreJson({ error: "This subscription no longer exists.", errorCode: "SUBSCRIPTION_NOT_FOUND" }, { status: 404 });
     return noStoreJson({ subscription: await selectedSubscription(db, id) });
   } catch (error) {
     return trackerError(error, "Unable to update the subscription.");
@@ -80,18 +80,49 @@ export async function DELETE(request: Request) {
   try {
     const payload = await request.json() as Record<string, unknown>;
     const id = cleanTrackerText(payload.id, 80, true);
-    if (!id) return noStoreJson({ error: "Invalid subscription.", errorCode: "INVALID_SUBSCRIPTION" }, { status: 400 });
-    const paymentCount = await db.prepare("SELECT COUNT(*) AS count FROM tracker_subscription_payments WHERE subscription_id = ?")
-      .bind(id).first<{ count: number }>();
-    if (Number(paymentCount?.count ?? 0) > 0) {
-      return noStoreJson({
-        error: "Subscriptions with payment history cannot be deleted. Archive it to preserve the expense ledger.",
-        errorCode: "SUBSCRIPTION_HAS_PAYMENTS",
-      }, { status: 409 });
+    const mode = payload.mode === "ARCHIVE" || payload.mode === "KEEP_PAYMENTS" || payload.mode === "DELETE_WITH_PAYMENTS"
+      ? payload.mode : null;
+    if (!id || !mode) return noStoreJson({ error: "Invalid subscription deletion request.", errorCode: "INVALID_SUBSCRIPTION_DELETE" }, { status: 400 });
+    const subscription = await selectedSubscription(db, id);
+    if (!subscription) return noStoreJson({ error: "This subscription no longer exists.", errorCode: "SUBSCRIPTION_NOT_FOUND" }, { status: 404 });
+
+    if (mode === "ARCHIVE") {
+      const result = await db.prepare("UPDATE tracker_subscriptions SET status = 'ARCHIVED', auto_renew = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(id).run();
+      if (result.meta.changes !== 1) return noStoreJson({ error: "This subscription changed while the request was being processed.", errorCode: "SUBSCRIPTION_CONFLICT" }, { status: 409 });
+      return noStoreJson({ id, archived: true, paymentCount: subscription.paymentCount, paymentTotalOre: subscription.paidTotalOre });
     }
-    const result = await db.prepare("DELETE FROM tracker_subscriptions WHERE id = ?").bind(id).run();
-    if (result.meta.changes !== 1) return noStoreJson({ error: "This subscription no longer exists.", errorCode: "SUBSCRIPTION_NOT_FOUND" }, { status: 404 });
-    return noStoreJson({ id, deleted: true });
+
+    if (mode === "DELETE_WITH_PAYMENTS") {
+      const confirmationName = typeof payload.confirmationName === "string" ? payload.confirmationName : "";
+      if (confirmationName !== subscription.name) return noStoreJson({
+        error: "Type the exact subscription name to confirm permanent deletion.", errorCode: "SUBSCRIPTION_CONFIRMATION_MISMATCH",
+      }, { status: 400 });
+      const results = await db.batch([
+        db.prepare(`DELETE FROM tracker_subscription_payments WHERE subscription_id =
+          (SELECT id FROM tracker_subscriptions WHERE id = ? AND name = ?)`).bind(id, confirmationName),
+        db.prepare("DELETE FROM tracker_subscriptions WHERE id = ? AND name = ?").bind(id, confirmationName),
+      ]);
+      if (results[1]?.meta.changes !== 1) return noStoreJson({ error: "This subscription changed while the request was being processed.", errorCode: "SUBSCRIPTION_CONFLICT" }, { status: 409 });
+      return noStoreJson({ id, deleted: true, paymentsDeleted: subscription.paymentCount, paymentTotalOre: subscription.paidTotalOre });
+    }
+
+    const results = await db.batch([
+      db.prepare(`INSERT INTO tracker_expenses
+        (id, name, amount_ore, category, occurred_at, notes, source_type, source_id, source_details, created_at, updated_at)
+        SELECT 'exp_detached_' || p.id, s.name, p.amount_ore, s.category, p.occurred_at, p.notes,
+          'SUBSCRIPTION_PAYMENT', p.id,
+          json_object('subscriptionId', s.id, 'subscriptionName', s.name, 'costOre', s.cost_ore,
+            'category', s.category, 'billingPeriod', s.billing_period, 'nextPaymentDate', s.next_payment_date,
+            'autoRenew', s.auto_renew, 'status', s.status, 'subscriptionNotes', s.notes),
+          p.created_at, CURRENT_TIMESTAMP
+        FROM tracker_subscription_payments p JOIN tracker_subscriptions s ON s.id = p.subscription_id
+        WHERE s.id = ?`).bind(id),
+      db.prepare("DELETE FROM tracker_subscription_payments WHERE subscription_id = ?").bind(id),
+      db.prepare("DELETE FROM tracker_subscriptions WHERE id = ?").bind(id),
+    ]);
+    if (results[2]?.meta.changes !== 1) return noStoreJson({ error: "This subscription changed while the request was being processed.", errorCode: "SUBSCRIPTION_CONFLICT" }, { status: 409 });
+    return noStoreJson({ id, deleted: true, paymentsKept: subscription.paymentCount, paymentTotalOre: subscription.paidTotalOre });
   } catch (error) {
     return trackerError(error, "Unable to delete the subscription.");
   }

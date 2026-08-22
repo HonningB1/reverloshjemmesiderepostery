@@ -51,11 +51,11 @@ export async function POST(request: Request) {
   if (!db) return trackerUnavailable();
   try {
     const input = parseProductInput(await request.json() as Record<string, unknown>);
-    if (!input) return noStoreJson({ error: "Complete the inventory fields with valid quantities, DKK amounts and a purchase date." }, { status: 400 });
+    if (!input) return noStoreJson({ error: "Complete the inventory fields with valid quantities, DKK amounts and a purchase date.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     const id = productId();
     const purchaseTransactionId = transactionId();
     const totalPurchaseOre = trackerMoneyProduct(input.purchasePriceOre, input.quantity, input.purchaseShippingOre);
-    if (totalPurchaseOre === null) return noStoreJson({ error: "The total purchase amount is too large to store safely." }, { status: 400 });
+    if (totalPurchaseOre === null) return noStoreJson({ error: "The total purchase amount is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     await db.batch([
       db.prepare(`INSERT INTO tracker_products
         (id, name, quantity, remaining_quantity, purchase_price_ore, purchase_shipping_ore,
@@ -95,10 +95,10 @@ export async function PATCH(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const id = cleanTrackerText(payload.id, 80, true);
     const input = parseProductInput(payload, true);
-    if (!id || !input) return noStoreJson({ error: "The inventory update contains invalid values." }, { status: 400 });
+    if (!id || !input) return noStoreJson({ error: "The inventory update contains invalid values.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
 
     const existing = await db.prepare(`SELECT ${productSelect} FROM tracker_products WHERE id = ?`).bind(id).first<TrackerProduct>();
-    if (!existing) return noStoreJson({ error: "This inventory item no longer exists." }, { status: 404 });
+    if (!existing) return noStoreJson({ error: "This inventory item no longer exists.", errorCode: "INVENTORY_NOT_FOUND" }, { status: 404 });
     const purchaseVat = await db.prepare(`SELECT quantity, unit_price_ore AS unitPriceOre,
       shipping_ore AS shippingOre, vat_treatment AS vatTreatment
       FROM tracker_transactions WHERE product_id = ? AND type = 'PURCHASE' LIMIT 1`)
@@ -115,11 +115,11 @@ export async function PATCH(request: Request) {
       FROM tracker_transactions WHERE product_id = ? AND type = 'SALE'
       ORDER BY occurred_at ASC, created_at ASC`).bind(id).all<SaleForRecalculation>();
     const soldQuantity = sales.results.reduce((sum, sale) => sum + Number(sale.quantity), 0);
-    if (input.quantity < soldQuantity) return noStoreJson({ error: `Quantity cannot be lower than the ${soldQuantity} units already sold.` }, { status: 409 });
+    if (input.quantity < soldQuantity) return noStoreJson({ error: `Quantity cannot be lower than the ${soldQuantity} units already sold.`, errorCode: "PURCHASE_BELOW_SOLD" }, { status: 409 });
     const remainingQuantity = input.quantity - soldQuantity;
     const finalStatus: TrackerStatus = remainingQuantity === 0 ? "SOLD" : input.status === "SOLD" ? "IN_STOCK" : input.status;
     const purchaseTotal = trackerMoneyProduct(input.purchasePriceOre, input.quantity, input.purchaseShippingOre);
-    if (purchaseTotal === null) return noStoreJson({ error: "The total purchase amount is too large to store safely." }, { status: 400 });
+    if (purchaseTotal === null) return noStoreJson({ error: "The total purchase amount is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     const statements = [
       db.prepare(`UPDATE tracker_products SET name = ?, quantity = ?, remaining_quantity = ?, purchase_price_ore = ?,
         purchase_shipping_ore = ?, expected_sale_price_ore = ?, listing_price_ore = ?, supplier = ?, purchase_date = ?,
@@ -135,7 +135,7 @@ export async function PATCH(request: Request) {
     for (const sale of sales.results) {
       const costBasisOre = input.purchasePriceOre * sale.quantity + allocatedShipping(input.purchaseShippingOre, input.quantity, cumulativeSold, sale.quantity);
       const totalCostsOre = costBasisOre + sale.feeOre + sale.promotedFeeOre + sale.shippingOre + sale.otherCostsOre;
-      if (![costBasisOre, totalCostsOre].every((value) => Number.isSafeInteger(value) && value >= 0)) return noStoreJson({ error: "The recalculated transaction total is too large to store safely." }, { status: 400 });
+      if (![costBasisOre, totalCostsOre].every((value) => Number.isSafeInteger(value) && value >= 0)) return noStoreJson({ error: "The recalculated transaction total is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
       statements.push(db.prepare("UPDATE tracker_transactions SET cost_basis_ore = ?, total_costs_ore = ?, net_profit_ore = ? WHERE id = ?")
         .bind(costBasisOre, totalCostsOre, sale.revenueOre - totalCostsOre, sale.id));
       cumulativeSold += sale.quantity;
@@ -154,12 +154,12 @@ export async function DELETE(request: Request) {
   try {
     const payload = await request.json() as { id?: unknown };
     const id = cleanTrackerText(payload.id, 80, true);
-    if (!id) return noStoreJson({ error: "Invalid inventory item." }, { status: 400 });
+    if (!id) return noStoreJson({ error: "Invalid inventory item.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     const results = await db.batch([
       db.prepare("DELETE FROM tracker_transactions WHERE product_id = ?").bind(id),
       db.prepare("DELETE FROM tracker_products WHERE id = ?").bind(id),
     ]);
-    if (results[1]?.meta.changes !== 1) return noStoreJson({ error: "This inventory item no longer exists." }, { status: 404 });
+    if (results[1]?.meta.changes !== 1) return noStoreJson({ error: "This inventory item no longer exists.", errorCode: "INVENTORY_NOT_FOUND" }, { status: 404 });
     return noStoreJson({ id, deleted: true });
   } catch (error) {
     return trackerError(error, "Unable to delete the inventory item.");

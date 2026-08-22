@@ -59,6 +59,12 @@ Tracker V2 VAT metadata, editable transaction notes, exact entered prices, and t
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0008_tracker_vat_and_transaction_editing.sql
 ```
 
+Permanent subscription deletion with preserved payment history is enabled by `drizzle/0009_tracker_detached_subscription_payments.sql`. It adds nullable source metadata to ordinary expenses so historical payments can be moved without changing Operating Expenses or Net Profit.
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0009_tracker_detached_subscription_payments.sql
+```
+
 Cloudflare Access must protect both `/track*` and `/api/track/*`. The tracker deliberately has no application-level login and is not linked from the public profile or included in the sitemap.
 
 ### One-off ResellTrack import
