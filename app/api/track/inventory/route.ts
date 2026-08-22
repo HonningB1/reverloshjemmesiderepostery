@@ -81,6 +81,13 @@ type SaleForRecalculation = {
   shippingOre: number; otherCostsOre: number;
 };
 
+type PurchaseVatState = {
+  quantity: number;
+  unitPriceOre: number;
+  shippingOre: number;
+  vatTreatment: string | null;
+};
+
 export async function PATCH(request: Request) {
   const db = trackerDb();
   if (!db) return trackerUnavailable();
@@ -92,6 +99,17 @@ export async function PATCH(request: Request) {
 
     const existing = await db.prepare(`SELECT ${productSelect} FROM tracker_products WHERE id = ?`).bind(id).first<TrackerProduct>();
     if (!existing) return noStoreJson({ error: "This inventory item no longer exists." }, { status: 404 });
+    const purchaseVat = await db.prepare(`SELECT quantity, unit_price_ore AS unitPriceOre,
+      shipping_ore AS shippingOre, vat_treatment AS vatTreatment
+      FROM tracker_transactions WHERE product_id = ? AND type = 'PURCHASE' LIMIT 1`)
+      .bind(id).first<PurchaseVatState>();
+    if (purchaseVat?.vatTreatment && (purchaseVat.quantity !== input.quantity ||
+        purchaseVat.unitPriceOre !== input.purchasePriceOre || purchaseVat.shippingOre !== input.purchaseShippingOre)) {
+      return noStoreJson({
+        error: "Edit VAT-classified purchase amounts from Transactions so VAT and cost basis are recalculated together.",
+        errorCode: "EDIT_PURCHASE_WITH_VAT",
+      }, { status: 409 });
+    }
     const sales = await db.prepare(`SELECT id, quantity, revenue_ore AS revenueOre, fee_ore AS feeOre,
       promoted_fee_ore AS promotedFeeOre, shipping_ore AS shippingOre, other_costs_ore AS otherCostsOre
       FROM tracker_transactions WHERE product_id = ? AND type = 'SALE'

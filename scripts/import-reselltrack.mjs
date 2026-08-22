@@ -188,15 +188,47 @@ export function analyseResellTrack(data, sourceName = "reselltrack-data.json") {
     if (recordHasCritical || !name || supplier === null || notes === null || !quantity || oldRemainingQuantity === null || !purchaseDate || purchasePriceOre === null || purchaseShippingOre === null) continue;
     const id = deterministicIds(oldId, "product");
     const totalPurchaseOre = purchasePriceOre * quantity + purchaseShippingOre;
+    let vat = null;
+    if (record.purchaseType === "business-vat") {
+      const enteredUnitPriceOre = dkkToOre(record.grossBuyPrice);
+      const enteredShippingOre = dkkToOre(record.grossShipping ?? 0);
+      const inputVatOre = dkkToOre(record.inputVat);
+      const deductibleVatOre = dkkToOre(record.recoverableVat);
+      const grossAmountOre = dkkToOre(record.cashPaid);
+      if ([enteredUnitPriceOre, enteredShippingOre, inputVatOre, deductibleVatOre, grossAmountOre].some((value) => value === null) ||
+          enteredUnitPriceOre * quantity + enteredShippingOre !== grossAmountOre || grossAmountOre - deductibleVatOre !== totalPurchaseOre ||
+          inputVatOre !== deductibleVatOre) {
+        issues.push({ severity: "CRITICAL", context, message: "Explicit business purchase VAT fields do not reconcile exactly with gross cash paid and imported net cost." });
+      } else {
+        const supplierCountry = typeof record.supplierCountry === "string" ? record.supplierCountry.trim().toUpperCase() : "";
+        vat = { enteredUnitPriceOre, enteredShippingOre, priceMode: "VAT_INCLUSIVE",
+          vatTreatment: supplierCountry === "DK" ? "DANISH_PURCHASE_DEDUCTIBLE" : "CUSTOM_MANUAL",
+          vatRateBps: 2500, grossAmountOre, inputVatOre, outputVatOre: 0, deductibleVatOre,
+          supplierCountry: supplierCountry || "" };
+        if (!supplierCountry) issues.push({ severity: "WARNING", context, message: "Business purchase VAT reconciles, but supplier country is absent; treatment is preserved as CUSTOM_MANUAL instead of assuming a Danish purchase." });
+      }
+    } else if (record.purchaseType === "private") {
+      const enteredUnitPriceOre = dkkToOre(record.grossBuyPrice);
+      const enteredShippingOre = dkkToOre(record.grossShipping ?? 0);
+      const inputVatOre = dkkToOre(record.inputVat ?? 0);
+      const grossAmountOre = enteredUnitPriceOre === null || enteredShippingOre === null ? null : enteredUnitPriceOre * quantity + enteredShippingOre;
+      if (enteredUnitPriceOre === null || enteredShippingOre === null || inputVatOre !== 0 || grossAmountOre !== totalPurchaseOre) {
+        issues.push({ severity: "CRITICAL", context, message: "Explicit private purchase fields do not reconcile exactly with imported non-deductible cost." });
+      } else {
+        vat = { enteredUnitPriceOre, enteredShippingOre, priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 0, grossAmountOre, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0 };
+      }
+    } else {
+      issues.push({ severity: "WARNING", context, message: "Purchase VAT treatment is absent; VAT metadata remains unknown and is not inferred." });
+    }
     const product = {
       id, oldId, name, quantity, oldRemainingQuantity, purchasePriceOre, purchaseShippingOre,
-      supplier, purchaseDate, status: oldRemainingQuantity === 0 ? "SOLD" : "IN_STOCK", notes,
+      supplier, purchaseDate, status: oldRemainingQuantity === 0 ? "SOLD" : "IN_STOCK", notes, vat,
     };
     products.push(product);
     purchases.push({
       id: deterministicIds(oldId, "purchase"), productId: id, oldId, quantity,
       unitPriceOre: purchasePriceOre, shippingOre: purchaseShippingOre, supplier,
-      costBasisOre: totalPurchaseOre, totalCostsOre: totalPurchaseOre, occurredAt: purchaseDate,
+      costBasisOre: totalPurchaseOre, totalCostsOre: totalPurchaseOre, occurredAt: purchaseDate, notes, vat,
     });
   }
 
@@ -269,8 +301,29 @@ export function analyseResellTrack(data, sourceName = "reselltrack-data.json") {
     if (record.shippingExchangeRate !== undefined && record.rawShipping !== undefined) {
       compareOre(shippingOre, dkkToOre(record.rawShipping * record.shippingExchangeRate), issues, context, "rawShipping × shippingExchangeRate does not reconcile with DKK shipping");
     }
-    if (notes) {
-      issues.push({ severity: "WARNING", context, message: "Sale note is not imported because tracker transactions currently have no notes field." });
+    let vat = null;
+    if (record.vatTreatment === "eu-b2b-reverse-charge" && record.vatType === "EU_B2B") {
+      const outputVatOre = dkkToOre(record.outputVat);
+      const grossAmountOre = dkkToOre(record.grossSalePrice);
+      const customerCountry = cleanText(record.customerCountry, 2, true);
+      const vatIdReference = cleanText(record.customerVatNumber, 80, true);
+      if (record.vatRate !== 0 || outputVatOre !== 0 || grossAmountOre !== revenueOre || record.customerType !== "business" ||
+          record.customerVatVerified !== true || !customerCountry || !vatIdReference) {
+        issues.push({ severity: "CRITICAL", context, message: "EU B2B reverse-charge evidence or 0% VAT amounts are incomplete or inconsistent." });
+      } else {
+        vat = { enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre, enteredTotalPriceOre: grossAmountOre, priceMode: "VAT_EXCLUSIVE", vatTreatment: "EU_B2B_SALE_REVERSE_CHARGE", vatRateBps: 0, grossAmountOre, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0, customerCountry: customerCountry.toUpperCase(), isB2b: true, vatIdReference };
+      }
+    } else if (record.vatTreatment === "private-sale" && record.vatType === "PRIVATE_SALE") {
+      const outputVatOre = dkkToOre(record.outputVat);
+      const grossAmountOre = dkkToOre(record.grossSalePrice);
+      const customerCountry = cleanText(record.customerCountry, 2);
+      if (record.vatRate !== 0 || outputVatOre !== 0 || grossAmountOre !== revenueOre || record.sellerType !== "private") {
+        issues.push({ severity: "CRITICAL", context, message: "Explicit private-sale VAT fields do not reconcile with revenue." });
+      } else {
+        vat = { enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre, enteredTotalPriceOre: grossAmountOre, priceMode: "VAT_EXCLUSIVE", vatTreatment: "NO_VAT_OUTSIDE_SCOPE", vatRateBps: 0, grossAmountOre, inputVatOre: 0, outputVatOre: 0, deductibleVatOre: 0, customerCountry: customerCountry ? customerCountry.toUpperCase() : "", isB2b: false, vatIdReference: "" };
+      }
+    } else {
+      issues.push({ severity: "WARNING", context, message: "Sale VAT treatment is absent; VAT metadata remains unknown and is not inferred." });
     }
 
     const recordHasCritical = issues.some((issue) => issue.severity === "CRITICAL" && issue.context === context);
@@ -279,7 +332,7 @@ export function analyseResellTrack(data, sourceName = "reselltrack-data.json") {
       id: deterministicIds(oldId, "sale"), oldId, oldProductId, productId: product.id,
       quantity, unitPriceOre, shippingOre, platform, feeOre, promotedFeeOre: 0,
       otherCostsOre, revenueOre, occurredAt, oldCostPriceOre: dkkToOre(record.costPrice), oldProfitOre: dkkToOre(record.profit),
-      sourceIndex: index,
+      sourceIndex: index, notes, vat,
     });
   }
 
@@ -470,6 +523,10 @@ function sqlNullableText(value) {
   return value ? sqlText(value) : "NULL";
 }
 
+function sqlNullableNumber(value) {
+  return value === null || value === undefined ? "NULL" : String(value);
+}
+
 export function buildImportSql(analysis) {
   if (!analysis.canApply) throw new Error("Cannot build import SQL while critical validation issues exist.");
   const summaryJson = JSON.stringify(analysis.summary);
@@ -482,10 +539,12 @@ export function buildImportSql(analysis) {
     lines.push(`INSERT INTO tracker_products (id, name, quantity, remaining_quantity, purchase_price_ore, purchase_shipping_ore, expected_sale_price_ore, listing_price_ore, supplier, purchase_date, status, notes) VALUES (${sqlText(product.id)}, ${sqlText(product.name)}, ${product.quantity}, ${product.oldRemainingQuantity}, ${product.purchasePriceOre}, ${product.purchaseShippingOre}, NULL, NULL, ${sqlText(product.supplier)}, ${sqlText(product.purchaseDate)}, ${sqlText(product.status)}, ${sqlText(product.notes)});`);
   }
   for (const purchase of analysis.purchases) {
-    lines.push(`INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, platform, fee_ore, promoted_fee_ore, other_costs_ore, cost_basis_ore, revenue_ore, total_costs_ore, net_profit_ore, occurred_at) VALUES (${sqlText(purchase.id)}, ${sqlText(purchase.productId)}, 'PURCHASE', ${purchase.quantity}, ${purchase.unitPriceOre}, ${purchase.shippingOre}, ${sqlNullableText(purchase.supplier)}, NULL, 0, 0, 0, ${purchase.costBasisOre}, 0, ${purchase.totalCostsOre}, 0, ${sqlText(purchase.occurredAt)});`);
+    const vat = purchase.vat;
+    lines.push(`INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, platform, fee_ore, promoted_fee_ore, other_costs_ore, cost_basis_ore, revenue_ore, total_costs_ore, net_profit_ore, notes, entered_unit_price_ore, entered_shipping_ore, price_mode, vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore, output_vat_ore, deductible_vat_ore, supplier_country, occurred_at) VALUES (${sqlText(purchase.id)}, ${sqlText(purchase.productId)}, 'PURCHASE', ${purchase.quantity}, ${purchase.unitPriceOre}, ${purchase.shippingOre}, ${sqlNullableText(purchase.supplier)}, NULL, 0, 0, 0, ${purchase.costBasisOre}, 0, ${purchase.totalCostsOre}, 0, ${sqlText(purchase.notes)}, ${sqlNullableNumber(vat?.enteredUnitPriceOre)}, ${sqlNullableNumber(vat?.enteredShippingOre)}, ${sqlNullableText(vat?.priceMode)}, ${sqlNullableText(vat?.vatTreatment)}, ${sqlNullableNumber(vat?.vatRateBps)}, ${sqlNullableNumber(vat?.grossAmountOre)}, ${sqlNullableNumber(vat?.inputVatOre)}, ${sqlNullableNumber(vat?.outputVatOre)}, ${sqlNullableNumber(vat?.deductibleVatOre)}, ${sqlNullableText(vat?.supplierCountry)}, ${sqlText(purchase.occurredAt)});`);
   }
   for (const sale of analysis.sales) {
-    lines.push(`INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, platform, fee_ore, promoted_fee_ore, other_costs_ore, cost_basis_ore, revenue_ore, total_costs_ore, net_profit_ore, occurred_at) VALUES (${sqlText(sale.id)}, ${sqlText(sale.productId)}, 'SALE', ${sale.quantity}, ${sale.unitPriceOre}, ${sale.shippingOre}, NULL, ${sqlText(sale.platform)}, ${sale.feeOre}, ${sale.promotedFeeOre}, ${sale.otherCostsOre}, ${sale.costBasisOre}, ${sale.revenueOre}, ${sale.totalCostsOre}, ${sale.netProfitOre}, ${sqlText(sale.occurredAt)});`);
+    const vat = sale.vat;
+    lines.push(`INSERT INTO tracker_transactions (id, product_id, type, quantity, unit_price_ore, shipping_ore, supplier, platform, fee_ore, promoted_fee_ore, other_costs_ore, cost_basis_ore, revenue_ore, total_costs_ore, net_profit_ore, notes, entered_unit_price_ore, entered_shipping_ore, entered_total_price_ore, price_mode, vat_treatment, vat_rate_bps, gross_amount_ore, input_vat_ore, output_vat_ore, deductible_vat_ore, customer_country, is_b2b, vat_id_reference, occurred_at) VALUES (${sqlText(sale.id)}, ${sqlText(sale.productId)}, 'SALE', ${sale.quantity}, ${sale.unitPriceOre}, ${sale.shippingOre}, NULL, ${sqlText(sale.platform)}, ${sale.feeOre}, ${sale.promotedFeeOre}, ${sale.otherCostsOre}, ${sale.costBasisOre}, ${sale.revenueOre}, ${sale.totalCostsOre}, ${sale.netProfitOre}, ${sqlText(sale.notes)}, ${sqlNullableNumber(vat?.enteredUnitPriceOre)}, ${sqlNullableNumber(vat?.enteredShippingOre)}, ${sqlNullableNumber(vat?.enteredTotalPriceOre)}, ${sqlNullableText(vat?.priceMode)}, ${sqlNullableText(vat?.vatTreatment)}, ${sqlNullableNumber(vat?.vatRateBps)}, ${sqlNullableNumber(vat?.grossAmountOre)}, ${sqlNullableNumber(vat?.inputVatOre)}, ${sqlNullableNumber(vat?.outputVatOre)}, ${sqlNullableNumber(vat?.deductibleVatOre)}, ${sqlNullableText(vat?.customerCountry)}, ${vat ? vat.isB2b ? 1 : 0 : "NULL"}, ${sqlNullableText(vat?.vatIdReference)}, ${sqlText(sale.occurredAt)});`);
   }
   for (const expense of analysis.expenses) {
     lines.push(`INSERT INTO tracker_expenses (id, name, amount_ore, category, occurred_at, notes) VALUES (${sqlText(expense.id)}, ${sqlText(expense.name)}, ${expense.amountOre}, ${sqlText(expense.category)}, ${sqlText(expense.occurredAt)}, ${sqlText(expense.notes)});`);

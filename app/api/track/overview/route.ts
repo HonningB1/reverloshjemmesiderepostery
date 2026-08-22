@@ -20,7 +20,7 @@ export async function GET() {
       db.prepare(`SELECT
         COALESCE(SUM(CASE WHEN type = 'SALE' THEN net_profit_ore ELSE 0 END), 0) AS tradingProfitOre,
         COALESCE(SUM(CASE WHEN type = 'SALE' THEN revenue_ore ELSE 0 END), 0) AS revenueOre,
-        COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN total_costs_ore ELSE 0 END), 0) AS cashInvestedOre
+        COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN COALESCE(gross_amount_ore, total_costs_ore) ELSE 0 END), 0) AS cashInvestedOre
         FROM tracker_transactions`).first<MetricsRow>(),
       db.prepare(`SELECT
         (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_expenses) +

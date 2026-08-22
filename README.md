@@ -53,11 +53,17 @@ Expenses, recurring subscription definitions, and actual subscription payment hi
 npx wrangler d1 execute reverlo-db --remote --file=drizzle/0007_tracker_expenses_subscriptions.sql
 ```
 
+Tracker V2 VAT metadata, editable transaction notes, exact entered prices, and the VAT settlement ledger are added by the next additive migration. Existing transaction VAT fields remain `NULL` until they are explicitly classified.
+
+```powershell
+npx wrangler d1 execute reverlo-db --remote --file=drizzle/0008_tracker_vat_and_transaction_editing.sql
+```
+
 Cloudflare Access must protect both `/track*` and `/api/track/*`. The tracker deliberately has no application-level login and is not linked from the public profile or included in the sitemap.
 
 ### One-off ResellTrack import
 
-`scripts/import-reselltrack.mjs` validates a legacy ResellTrack JSON export and is always a dry run unless `--apply` and an explicit D1 target are provided. It imports inventory products, one purchase transaction per product, linked sales, ordinary expenses, subscriptions, and actual subscription payment history. Revolut transfers, VAT metadata, and other unsupported account data remain outside the import.
+`scripts/import-reselltrack.mjs` validates a legacy ResellTrack JSON export and is always a dry run unless `--apply` and an explicit D1 target are provided. It imports inventory products, one purchase transaction per product, linked sales, ordinary expenses, subscriptions, and actual subscription payment history. Explicit, internally reconciling VAT metadata is preserved for future imports; absent or ambiguous VAT remains unknown. Revolut transfers and other unsupported account data remain outside the import.
 
 Run the report without writing to D1:
 
@@ -79,6 +85,18 @@ npm run tracker:import -- C:\path\to\reselltrack-data.json --apply --remote --co
 ```
 
 The import uses deterministic product and transaction IDs plus the unique source hash in `tracker_imports`. Reapplying the same export, or another export containing the same legacy record IDs, is rejected instead of duplicating data. Any critical validation issue blocks the complete import.
+
+The already-imported Starlink Mini history must not be imported again. After `0008`, first validate its exact source records with the dedicated dry-run repair:
+
+```powershell
+npm run tracker:repair-starlink-vat -- C:\path\to\reselltrack-data.json
+```
+
+Only after reviewing its confirmation hash can the guarded metadata-only repair be run explicitly. The repair leaves cost basis, revenue, trading profit, inventory, and operating expenses unchanged:
+
+```powershell
+npm run tracker:repair-starlink-vat -- C:\path\to\reselltrack-data.json --apply --remote --confirm HASH_FROM_DRY_RUN
+```
 
 ## eBay seller- and buyer-feedback sync
 
