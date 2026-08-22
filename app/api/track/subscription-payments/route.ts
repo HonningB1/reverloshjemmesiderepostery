@@ -5,7 +5,8 @@ import { createTrackerSubscriptionPaymentStatement, parseTrackerSubscriptionPaym
 import type { TrackerSubscriptionPayment } from "../../../track/types";
 
 const paymentSelect = `p.id, p.subscription_id AS subscriptionId, s.name AS subscriptionName,
-  p.amount_ore AS amountOre, p.occurred_at AS occurredAt, p.notes, p.created_at AS createdAt`;
+  CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END AS amountOre,
+  p.occurred_at AS occurredAt, p.notes, p.created_at AS createdAt`;
 
 export async function POST(request: Request) {
   const db = trackerDb();

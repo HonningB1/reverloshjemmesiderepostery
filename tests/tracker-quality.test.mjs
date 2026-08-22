@@ -5,7 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import {
   analyticsDateRange, calendarDateInTimeZone, calculateOperatingResult, calculateProfit, calculateProfitCalculator,
-  calculateVatAmounts, recalculateProductSales, remainingInventoryCost, vatPosition,
+  calculateVatAmounts, recalculateOperationalProductSales, recalculateProductSales, remainingInventoryCost, vatPosition,
 } from "../lib/tracker-accounting.ts";
 import { trackerDa, trackerEn } from "../app/track/translations.ts";
 
@@ -113,6 +113,65 @@ test("VAT-inclusive B2C sales subtract output VAT once, inventory cost and selle
   assert.equal(result.totalCostsOre, 106_170, "output VAT is already removed from revenue, never added as a second expense");
 });
 
+test("PRIVATE/B2C operational profit compares VAT-inclusive cash paid and received", () => {
+  const saleAmounts = calculateVatAmounts({ type: "SALE", quantity: 1, enteredUnitPriceOre: 121_108,
+    enteredTotalPriceOre: 121_108, enteredShippingOre: 8_000, priceMode: "VAT_INCLUSIVE",
+    vatTreatment: "DANISH_SALE_VAT", vatRateBps: 2_500 });
+  const operational = recalculateOperationalProductSales({ quantity: 1, purchasePriceOre: 77_736,
+    purchaseShippingOre: 0, operationalPurchasePriceOre: 97_170, operationalPurchaseShippingOre: 0 }, [sale({
+      revenueOre: saleAmounts.revenueOre, grossRevenueOre: saleAmounts.grossAmountOre, transactionContext: "PRIVATE", shippingOre: 8_000,
+    })]).sales[0];
+  assert.deepEqual({ grossSale: operational.operationalRevenueOre, grossCost: operational.operationalCostBasisOre,
+    saleExpenses: operational.operationalTotalCostsOre - operational.operationalCostBasisOre, profit: operational.operationalProfitOre },
+  { grossSale: 121_108, grossCost: 97_170, saleExpenses: 8_000, profit: 15_938 });
+  assert.deepEqual({ netRevenue: saleAmounts.revenueOre, outputVat: saleAmounts.outputVatOre }, { netRevenue: 96_886, outputVat: 24_222 });
+});
+
+test("operational PRIVATE profits stay gross for no-VAT, deductible and non-deductible purchase metadata", () => {
+  const noVat = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 50_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 0 });
+  const nonDeductible = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 100_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 2_500 });
+  const deductible = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 100_000, enteredShippingOre: 0,
+    priceMode: "VAT_INCLUSIVE", vatTreatment: "DANISH_PURCHASE_DEDUCTIBLE", vatRateBps: 2_500 });
+  const sales = [sale({ quantity: 2, revenueOre: 240_000, grossRevenueOre: 300_000, transactionContext: "PRIVATE", feeOre: 10_000 })];
+  const nonDeductibleResult = recalculateOperationalProductSales({ quantity: 2, purchasePriceOre: nonDeductible.unitPriceOre,
+    purchaseShippingOre: nonDeductible.shippingOre, operationalPurchasePriceOre: 100_000, operationalPurchaseShippingOre: 0 }, sales).sales[0];
+  const deductibleResult = recalculateOperationalProductSales({ quantity: 2, purchasePriceOre: deductible.unitPriceOre,
+    purchaseShippingOre: deductible.shippingOre, operationalPurchasePriceOre: 100_000, operationalPurchaseShippingOre: 0 }, sales).sales[0];
+  const noVatResult = recalculateOperationalProductSales({ quantity: 2, purchasePriceOre: noVat.unitPriceOre,
+    purchaseShippingOre: noVat.shippingOre, operationalPurchasePriceOre: 50_000, operationalPurchaseShippingOre: 0 }, [sale({ quantity: 2,
+      revenueOre: 120_000, grossRevenueOre: 120_000, transactionContext: "PRIVATE" })]).sales[0];
+  assert.equal(nonDeductibleResult.operationalProfitOre, 90_000);
+  assert.equal(deductibleResult.operationalProfitOre, 90_000, "deductible input VAT remains in VAT accounting, not cash performance");
+  assert.equal(noVatResult.operationalProfitOre, 20_000);
+  assert.equal(deductible.economicPurchaseCostOre, 160_000);
+  assert.equal(nonDeductible.economicPurchaseCostOre, 200_000);
+});
+
+test("operational quantity edits allocate gross purchase cost while B2B stays on its accounting basis", () => {
+  const product = { quantity: 3, purchasePriceOre: 80_000, purchaseShippingOre: 0,
+    operationalPurchasePriceOre: 100_000, operationalPurchaseShippingOre: 101 };
+  const created = recalculateOperationalProductSales(product, [sale({ quantity: 1, revenueOre: 120_000,
+    grossRevenueOre: 150_000, transactionContext: "PRIVATE" })]).sales[0];
+  const edited = recalculateOperationalProductSales(product, [sale({ quantity: 2, revenueOre: 240_000,
+    grossRevenueOre: 300_000, transactionContext: "PRIVATE" })]).sales[0];
+  const b2b = recalculateOperationalProductSales(product, [sale({ quantity: 1, revenueOre: 120_000,
+    grossRevenueOre: 150_000, transactionContext: "B2B" })]).sales[0];
+  assert.equal(created.operationalCostBasisOre, 100_033);
+  assert.equal(edited.operationalCostBasisOre, 200_067);
+  assert.equal(edited.operationalProfitOre, 99_933);
+  assert.deepEqual({ revenue: b2b.operationalRevenueOre, cost: b2b.operationalCostBasisOre, profit: b2b.operationalProfitOre },
+    { revenue: 120_000, cost: 80_000, profit: 40_000 });
+});
+
+test("PRIVATE subscription and email purchases enforce VAT-inclusive entry while B2B remains explicit", async () => {
+  const [subscriptions, emailUi] = await Promise.all([source("lib/tracker-subscriptions.ts"), source("app/track/TrackerEmailImports.tsx")]);
+  assert.match(subscriptions, /priceModeForTransactionContext\(context, proposedPriceMode\)/);
+  assert.match(emailUi, /context === "PRIVATE" \? "VAT_INCLUSIVE"/);
+  assert.match(emailUi, /disabled=\{context === "PRIVATE"\}/);
+});
+
 test("purchase VAT treatment determines inventory cost basis for multi-unit sales and edits", () => {
   const nonDeductible = calculateVatAmounts({ type: "PURCHASE", quantity: 2, enteredUnitPriceOre: 100_000,
     enteredShippingOre: 0, priceMode: "VAT_INCLUSIVE", vatTreatment: "PRIVATE_PURCHASE_NO_DEDUCTION", vatRateBps: 2_500 });
@@ -140,10 +199,12 @@ test("sale preview and persisted transaction share the VAT and ledger calculatio
   const [ui, route] = await Promise.all([source("app/track/TrackerTransactions.tsx"), source("app/api/track/transactions/route.ts")]);
   assert.match(ui, /calculateVatAmounts\(\{ type, quantity: parsedQuantity/);
   assert.match(ui, /recalculateProductSales\(selected!/);
+  assert.match(ui, /recalculateOperationalProductSales\(selected!/);
   assert.match(ui, /Gross sale \(incl\. VAT\)/);
   assert.match(ui, /preview\.totalCostsOre - preview\.costBasisOre/);
   assert.match(route, /parseAccounting\(payload, "SALE", quantity, enteredUnitPriceOre, shippingOre\)/);
   assert.match(route, /recalculateProductSales\(product, \[\.\.\.await loadSales\(db, selectedProductId\), candidate\]\)/);
+  assert.match(route, /operationalSalesById/);
 });
 
 test("expense and subscription-payment create, edit and delete reconcile operating and net profit", () => {

@@ -1,4 +1,5 @@
-import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type SaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext, recalculateProductSales, transactionContextForVatTreatment, type OperationalSaleLedgerInput } from "../../../../lib/tracker-accounting";
+import { operationalSalesById } from "../../../../lib/tracker-operational";
 import { createTrackerPurchaseStatements, parseTrackerPurchaseInput } from "../../../../lib/tracker-purchases";
 import {
   noStoreJson, optionalTrackerMoney, strictTrackerText, trackerBoolean, trackerDate, trackerDb,
@@ -21,11 +22,15 @@ const transactionSelect = `t.id, t.product_id AS productId, p.name AS productNam
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
   purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre,
   expected_sale_price_ore AS expectedSalePriceOre, listing_price_ore AS listingPriceOre,
   supplier, purchase_date AS purchaseDate, status, notes, created_at AS createdAt, updated_at AS updatedAt`;
 
 type ProductRow = TrackerProduct;
-type SaleRow = SaleLedgerInput & { productId: string };
+type SaleRow = OperationalSaleLedgerInput & { productId: string };
 
 function country(value: unknown) {
   if (value === null || value === undefined || value === "") return "";
@@ -84,9 +89,32 @@ async function loadProduct(db: D1Database, id: string) {
 async function loadSales(db: D1Database, productIdValue: string) {
   return (await db.prepare(`SELECT id, product_id AS productId, quantity, revenue_ore AS revenueOre,
     fee_ore AS feeOre, promoted_fee_ore AS promotedFeeOre, shipping_ore AS shippingOre,
-    other_costs_ore AS otherCostsOre, occurred_at AS occurredAt, created_at AS createdAt
+    other_costs_ore AS otherCostsOre, gross_amount_ore AS grossRevenueOre, transaction_context AS transactionContext,
+    occurred_at AS occurredAt, created_at AS createdAt
     FROM tracker_transactions WHERE product_id = ? AND type = 'SALE'
     ORDER BY occurred_at ASC, created_at ASC, id ASC`).bind(productIdValue).all<SaleRow>()).results;
+}
+
+async function withOperationalProfit(db: D1Database, transactions: TrackerTransaction[]) {
+  const products = (await db.prepare(`SELECT ${productSelect} FROM tracker_products`).all<ProductRow>()).results;
+  const salesByProduct = new Map<string, SaleRow[]>();
+  for (const transaction of transactions) {
+    if (transaction.type !== "SALE") continue;
+    const sales = salesByProduct.get(transaction.productId) ?? [];
+    sales.push({ id: transaction.id, productId: transaction.productId, quantity: transaction.quantity,
+      revenueOre: transaction.revenueOre, feeOre: transaction.feeOre, promotedFeeOre: transaction.promotedFeeOre,
+      shippingOre: transaction.shippingOre, otherCostsOre: transaction.otherCostsOre,
+      grossRevenueOre: transaction.grossAmountOre, transactionContext: transaction.transactionContext,
+      occurredAt: transaction.occurredAt, createdAt: transaction.createdAt });
+    salesByProduct.set(transaction.productId, sales);
+  }
+  const operational = operationalSalesById(products, [...salesByProduct.values()].flat());
+  return transactions.map((transaction) => {
+    const sale = operational.get(transaction.id);
+    return sale ? { ...transaction, operationalRevenueOre: sale.operationalRevenueOre,
+      operationalCostBasisOre: sale.operationalCostBasisOre, operationalTotalCostsOre: sale.operationalTotalCostsOre,
+      operationalProfitOre: sale.operationalProfitOre } : transaction;
+  });
 }
 
 function saleRecalculationStatements(db: D1Database, rows: ReturnType<typeof recalculateProductSales>["sales"]) {
@@ -101,7 +129,7 @@ export async function GET() {
   try {
     const result = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t
       JOIN tracker_products p ON p.id = t.product_id ORDER BY t.occurred_at DESC, t.created_at DESC`).all<TrackerTransaction>();
-    return noStoreJson({ transactions: result.results });
+    return noStoreJson({ transactions: await withOperationalProfit(db, result.results) });
   } catch (error) {
     return trackerError(error, "Unable to load transactions.");
   }
@@ -127,7 +155,7 @@ export async function POST(request: Request) {
       const created = createTrackerPurchaseStatements(db, purchase);
       await db.batch(created.statements);
       const transaction = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.id = ?`).bind(created.transactionId).first<TrackerTransaction>();
-      return noStoreJson({ transaction }, { status: 201 });
+      return noStoreJson({ transaction: transaction ? (await withOperationalProfit(db, [transaction]))[0] : null }, { status: 201 });
     }
 
     if (payload.type === "SALE") {
@@ -152,9 +180,10 @@ export async function POST(request: Request) {
       if (product.remainingQuantity < quantity) return noStoreJson({ error: `Only ${product.remainingQuantity} units remain in inventory.`, errorCode: "INSUFFICIENT_INVENTORY", available: product.remainingQuantity }, { status: 409 });
 
       const id = transactionId();
-      const candidate: SaleLedgerInput = {
+      const candidate: OperationalSaleLedgerInput = {
         id, quantity, revenueOre: accounting.amounts.revenueOre, feeOre, promotedFeeOre,
-        shippingOre, otherCostsOre, occurredAt, createdAt: new Date().toISOString(),
+        shippingOre, otherCostsOre, grossRevenueOre: accounting.amounts.grossAmountOre,
+        transactionContext: accounting.transactionContext, occurredAt, createdAt: new Date().toISOString(),
       };
       const ledger = recalculateProductSales(product, [...await loadSales(db, selectedProductId), candidate]);
       const sale = ledger.sales.find((row) => row.id === id)!;
@@ -176,7 +205,7 @@ export async function POST(request: Request) {
         ...saleRecalculationStatements(db, ledger.sales.filter((row) => row.id !== id)),
       ]);
       const transaction = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.id = ?`).bind(id).first<TrackerTransaction>();
-      return noStoreJson({ transaction }, { status: 201 });
+      return noStoreJson({ transaction: transaction ? (await withOperationalProfit(db, [transaction]))[0] : null }, { status: 201 });
     }
     return noStoreJson({ error: "Transaction type must be PURCHASE or SALE.", errorCode: "INVALID_TRANSACTION_TYPE" }, { status: 400 });
   } catch (error) {
@@ -258,7 +287,8 @@ export async function PATCH(request: Request) {
 
       const replacement: SaleRow = {
         id, productId: nextProductId, quantity, revenueOre: accounting.amounts.revenueOre, feeOre,
-        promotedFeeOre, shippingOre, otherCostsOre, occurredAt, createdAt: existing.createdAt,
+        promotedFeeOre, shippingOre, otherCostsOre, grossRevenueOre: accounting.amounts.grossAmountOre,
+        transactionContext: accounting.transactionContext, occurredAt, createdAt: existing.createdAt,
       };
       const oldSales = await loadSales(db, oldProduct.id);
       let oldLedger: ReturnType<typeof recalculateProductSales>;
@@ -301,7 +331,7 @@ export async function PATCH(request: Request) {
     }
 
     const transaction = await db.prepare(`SELECT ${transactionSelect} FROM tracker_transactions t JOIN tracker_products p ON p.id = t.product_id WHERE t.id = ?`).bind(id).first<TrackerTransaction>();
-    return noStoreJson({ transaction });
+    return noStoreJson({ transaction: transaction ? (await withOperationalProfit(db, [transaction]))[0] : null });
   } catch (error) {
     return trackerError(error, "Unable to update the transaction.");
   }

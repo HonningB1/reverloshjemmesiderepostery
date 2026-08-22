@@ -6,6 +6,10 @@ import type { TrackerProduct, TrackerStatus } from "../../../track/types";
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
   purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre,
   expected_sale_price_ore AS expectedSalePriceOre, listing_price_ore AS listingPriceOre,
   supplier, purchase_date AS purchaseDate, status, notes, created_at AS createdAt, updated_at AS updatedAt`;
 
@@ -85,6 +89,9 @@ type PurchaseVatState = {
   quantity: number;
   unitPriceOre: number;
   shippingOre: number;
+  enteredUnitPriceOre: number | null;
+  enteredShippingOre: number | null;
+  transactionContext: string | null;
   vatTreatment: string | null;
 };
 
@@ -100,11 +107,16 @@ export async function PATCH(request: Request) {
     const existing = await db.prepare(`SELECT ${productSelect} FROM tracker_products WHERE id = ?`).bind(id).first<TrackerProduct>();
     if (!existing) return noStoreJson({ error: "This inventory item no longer exists.", errorCode: "INVENTORY_NOT_FOUND" }, { status: 404 });
     const purchaseVat = await db.prepare(`SELECT quantity, unit_price_ore AS unitPriceOre,
-      shipping_ore AS shippingOre, vat_treatment AS vatTreatment
+      shipping_ore AS shippingOre, entered_unit_price_ore AS enteredUnitPriceOre,
+      entered_shipping_ore AS enteredShippingOre, transaction_context AS transactionContext, vat_treatment AS vatTreatment
       FROM tracker_transactions WHERE product_id = ? AND type = 'PURCHASE' LIMIT 1`)
       .bind(id).first<PurchaseVatState>();
+    const displayedPurchasePriceOre = purchaseVat?.transactionContext === "PRIVATE"
+      ? purchaseVat.enteredUnitPriceOre ?? purchaseVat.unitPriceOre : purchaseVat?.unitPriceOre;
+    const displayedPurchaseShippingOre = purchaseVat?.transactionContext === "PRIVATE"
+      ? purchaseVat.enteredShippingOre ?? purchaseVat.shippingOre : purchaseVat?.shippingOre;
     if (purchaseVat?.vatTreatment && (purchaseVat.quantity !== input.quantity ||
-        purchaseVat.unitPriceOre !== input.purchasePriceOre || purchaseVat.shippingOre !== input.purchaseShippingOre)) {
+        displayedPurchasePriceOre !== input.purchasePriceOre || displayedPurchaseShippingOre !== input.purchaseShippingOre)) {
       return noStoreJson({
         error: "Edit VAT-classified purchase amounts from Transactions so VAT and cost basis are recalculated together.",
         errorCode: "EDIT_PURCHASE_WITH_VAT",
@@ -118,22 +130,27 @@ export async function PATCH(request: Request) {
     if (input.quantity < soldQuantity) return noStoreJson({ error: `Quantity cannot be lower than the ${soldQuantity} units already sold.`, errorCode: "PURCHASE_BELOW_SOLD" }, { status: 409 });
     const remainingQuantity = input.quantity - soldQuantity;
     const finalStatus: TrackerStatus = remainingQuantity === 0 ? "SOLD" : input.status === "SOLD" ? "IN_STOCK" : input.status;
-    const purchaseTotal = trackerMoneyProduct(input.purchasePriceOre, input.quantity, input.purchaseShippingOre);
+    const storedPurchasePriceOre = purchaseVat?.vatTreatment ? existing.purchasePriceOre : input.purchasePriceOre;
+    const storedPurchaseShippingOre = purchaseVat?.vatTreatment ? existing.purchaseShippingOre : input.purchaseShippingOre;
+    const purchaseTotal = trackerMoneyProduct(storedPurchasePriceOre, input.quantity, storedPurchaseShippingOre);
     if (purchaseTotal === null) return noStoreJson({ error: "The total purchase amount is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
     const statements = [
       db.prepare(`UPDATE tracker_products SET name = ?, quantity = ?, remaining_quantity = ?, purchase_price_ore = ?,
         purchase_shipping_ore = ?, expected_sale_price_ore = ?, listing_price_ore = ?, supplier = ?, purchase_date = ?,
         status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-        .bind(input.name, input.quantity, remainingQuantity, input.purchasePriceOre, input.purchaseShippingOre,
+        .bind(input.name, input.quantity, remainingQuantity, storedPurchasePriceOre, storedPurchaseShippingOre,
           input.expectedSalePriceOre, input.listingPriceOre, input.supplier, input.purchaseDate, finalStatus, input.notes, id),
-      db.prepare(`UPDATE tracker_transactions SET quantity = ?, unit_price_ore = ?, shipping_ore = ?, supplier = ?,
-        cost_basis_ore = ?, total_costs_ore = ?, occurred_at = ? WHERE product_id = ? AND type = 'PURCHASE'`)
-        .bind(input.quantity, input.purchasePriceOre, input.purchaseShippingOre, input.supplier || null,
-          purchaseTotal, purchaseTotal, input.purchaseDate, id),
+      purchaseVat?.vatTreatment
+        ? db.prepare(`UPDATE tracker_transactions SET supplier = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE product_id = ? AND type = 'PURCHASE'`).bind(input.supplier || null, input.purchaseDate, id)
+        : db.prepare(`UPDATE tracker_transactions SET quantity = ?, unit_price_ore = ?, shipping_ore = ?, supplier = ?,
+          cost_basis_ore = ?, total_costs_ore = ?, occurred_at = ? WHERE product_id = ? AND type = 'PURCHASE'`)
+          .bind(input.quantity, storedPurchasePriceOre, storedPurchaseShippingOre, input.supplier || null,
+            purchaseTotal, purchaseTotal, input.purchaseDate, id),
     ];
     let cumulativeSold = 0;
     for (const sale of sales.results) {
-      const costBasisOre = input.purchasePriceOre * sale.quantity + allocatedShipping(input.purchaseShippingOre, input.quantity, cumulativeSold, sale.quantity);
+      const costBasisOre = storedPurchasePriceOre * sale.quantity + allocatedShipping(storedPurchaseShippingOre, input.quantity, cumulativeSold, sale.quantity);
       const totalCostsOre = costBasisOre + sale.feeOre + sale.promotedFeeOre + sale.shippingOre + sale.otherCostsOre;
       if (![costBasisOre, totalCostsOre].every((value) => Number.isSafeInteger(value) && value >= 0)) return noStoreJson({ error: "The recalculated transaction total is too large to store safely.", errorCode: "INVALID_INVENTORY" }, { status: 400 });
       statements.push(db.prepare("UPDATE tracker_transactions SET cost_basis_ore = ?, total_costs_ore = ?, net_profit_ore = ? WHERE id = ?")

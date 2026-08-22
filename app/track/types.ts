@@ -30,6 +30,8 @@ export type TrackerProduct = {
   remainingQuantity: number;
   purchasePriceOre: number;
   purchaseShippingOre: number;
+  operationalPurchasePriceOre: number;
+  operationalPurchaseShippingOre: number;
   expectedSalePriceOre: number | null;
   listingPriceOre: number | null;
   supplier: string;
@@ -57,6 +59,10 @@ export type TrackerTransaction = {
   revenueOre: number;
   totalCostsOre: number;
   netProfitOre: number;
+  operationalRevenueOre: number;
+  operationalCostBasisOre: number;
+  operationalTotalCostsOre: number;
+  operationalProfitOre: number;
   notes: string;
   enteredUnitPriceOre: number | null;
   enteredShippingOre: number | null;

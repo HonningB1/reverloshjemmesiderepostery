@@ -1,13 +1,19 @@
 import { noStoreJson, trackerDb, trackerError, trackerUnavailable } from "../../../../lib/tracker";
+import { remainingOperationalInventoryCost } from "../../../../lib/tracker-accounting";
+import { operationalSalesById, type OperationalSale } from "../../../../lib/tracker-operational";
 import type { ProfitPoint, TrackerActivity, TrackerProduct, TrackerStatus } from "../../../track/types";
 
-type MetricsRow = { tradingProfitOre: number; revenueOre: number; cashInvestedOre: number };
-type OperatingRow = { operatingExpensesOre: number };
-type InventoryValueRow = { inventoryValueOre: number };
+type CashInvestedRow = { cashInvestedOre: number };
+type OperatingRow = { date: string; amountOre: number };
 type StatusRow = { status: TrackerStatus; count: number };
+type SaleRow = OperationalSale & { grossRevenueOre: number | null; transactionContext: "PRIVATE" | "B2B" | "SPECIAL" | null };
 
 const productSelect = `id, name, quantity, remaining_quantity AS remainingQuantity,
   purchase_price_ore AS purchasePriceOre, purchase_shipping_ore AS purchaseShippingOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_unit_price_ore, purchase.unit_price_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_price_ore) AS operationalPurchasePriceOre,
+  COALESCE((SELECT CASE WHEN purchase.transaction_context = 'PRIVATE' THEN COALESCE(purchase.entered_shipping_ore, purchase.shipping_ore) END
+    FROM tracker_transactions purchase WHERE purchase.product_id = tracker_products.id AND purchase.type = 'PURCHASE' LIMIT 1), purchase_shipping_ore) AS operationalPurchaseShippingOre,
   expected_sale_price_ore AS expectedSalePriceOre, listing_price_ore AS listingPriceOre,
   supplier, purchase_date AS purchaseDate, status, notes, created_at AS createdAt, updated_at AS updatedAt`;
 
@@ -16,32 +22,19 @@ export async function GET() {
   const db = trackerDb();
   if (!db) return trackerUnavailable();
   try {
-    const [metrics, operating, inventoryValue, profitSeries, recentActivity, inventorySnapshot, statusRows] = await Promise.all([
+    const [products, sales, cashInvested, operatingRows, recentActivity, inventorySnapshot, statusRows] = await Promise.all([
+      db.prepare(`SELECT ${productSelect} FROM tracker_products`).all<TrackerProduct>(),
+      db.prepare(`SELECT id, product_id AS productId, quantity, revenue_ore AS revenueOre, fee_ore AS feeOre,
+        promoted_fee_ore AS promotedFeeOre, shipping_ore AS shippingOre, other_costs_ore AS otherCostsOre,
+        gross_amount_ore AS grossRevenueOre, transaction_context AS transactionContext, occurred_at AS occurredAt,
+        created_at AS createdAt FROM tracker_transactions WHERE type = 'SALE'`).all<SaleRow>(),
       db.prepare(`SELECT
-        COALESCE(SUM(CASE WHEN type = 'SALE' THEN net_profit_ore ELSE 0 END), 0) AS tradingProfitOre,
-        COALESCE(SUM(CASE WHEN type = 'SALE' THEN revenue_ore ELSE 0 END), 0) AS revenueOre,
         COALESCE(SUM(CASE WHEN type = 'PURCHASE' THEN COALESCE(gross_amount_ore, total_costs_ore) ELSE 0 END), 0) AS cashInvestedOre
-        FROM tracker_transactions`).first<MetricsRow>(),
-      db.prepare(`SELECT
-        (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_expenses) +
-        (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_subscription_payments) AS operatingExpensesOre`).first<OperatingRow>(),
-      db.prepare(`SELECT COALESCE(SUM(
-        purchase_price_ore * remaining_quantity +
-        purchase_shipping_ore - CAST(purchase_shipping_ore * (quantity - remaining_quantity) / quantity AS INTEGER)
-      ), 0) AS inventoryValueOre FROM tracker_products`).first<InventoryValueRow>(),
-      db.prepare(`WITH daily AS (
-        SELECT occurred_at AS date, SUM(net_profit_ore) AS tradingProfitOre, 0 AS operatingExpensesOre,
-          SUM(revenue_ore) AS revenueOre, SUM(total_costs_ore) AS tradingCostsOre
-        FROM tracker_transactions WHERE type = 'SALE' GROUP BY occurred_at
-        UNION ALL
-        SELECT occurred_at AS date, 0, SUM(amount_ore), 0, 0 FROM tracker_expenses GROUP BY occurred_at
-        UNION ALL
-        SELECT occurred_at AS date, 0, SUM(amount_ore), 0, 0 FROM tracker_subscription_payments GROUP BY occurred_at
-      ) SELECT date, SUM(tradingProfitOre) AS tradingProfitOre,
-        SUM(operatingExpensesOre) AS operatingExpensesOre,
-        SUM(tradingProfitOre) - SUM(operatingExpensesOre) AS netProfitOre,
-        SUM(revenueOre) AS revenueOre, SUM(tradingCostsOre) AS tradingCostsOre
-        FROM daily GROUP BY date ORDER BY date ASC`).all<ProfitPoint>(),
+        FROM tracker_transactions`).first<CashInvestedRow>(),
+      db.prepare(`SELECT occurred_at AS date, amount_ore AS amountOre FROM tracker_expenses
+        UNION ALL SELECT occurred_at AS date,
+          CASE WHEN transaction_context = 'PRIVATE' THEN COALESCE(entered_amount_ore, gross_amount_ore, amount_ore) ELSE amount_ore END
+          AS amountOre FROM tracker_subscription_payments`).all<OperatingRow>(),
       db.prepare(`SELECT id, kind, title, quantity, context, amountOre, occurredAt FROM (
         SELECT t.id, t.type AS kind, p.name AS title,
           t.quantity,
@@ -61,22 +54,40 @@ export async function GET() {
       db.prepare("SELECT status, COUNT(*) AS count FROM tracker_products GROUP BY status").all<StatusRow>(),
     ]);
 
+    const operational = operationalSalesById(products.results, sales.results);
+    const daily = new Map<string, ProfitPoint>();
+    const point = (date: string) => {
+      const existing = daily.get(date) ?? { date, tradingProfitOre: 0, operatingExpensesOre: 0, netProfitOre: 0, revenueOre: 0, tradingCostsOre: 0 };
+      daily.set(date, existing); return existing;
+    };
+    for (const sale of sales.results) {
+      const result = operational.get(sale.id); if (!result) continue;
+      const current = point(sale.occurredAt); current.tradingProfitOre += result.operationalProfitOre;
+      current.revenueOre += result.operationalRevenueOre; current.tradingCostsOre += result.operationalTotalCostsOre;
+    }
+    for (const expense of operatingRows.results) point(expense.date).operatingExpensesOre += Number(expense.amountOre);
+    const profitSeries = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date)).map((entry) => ({ ...entry,
+      netProfitOre: entry.tradingProfitOre - entry.operatingExpensesOre }));
+    const tradingProfitOre = [...operational.values()].reduce((sum, sale) => sum + sale.operationalProfitOre, 0);
+    const revenueOre = [...operational.values()].reduce((sum, sale) => sum + sale.operationalRevenueOre, 0);
+    const operatingExpensesOre = operatingRows.results.reduce((sum, row) => sum + Number(row.amountOre), 0);
+    const inventoryValueOre = products.results.reduce((sum, product) => sum + remainingOperationalInventoryCost(product), 0);
     const statusCounts: Record<TrackerStatus, number> = { IN_STOCK: 0, LISTED: 0, RESERVED: 0, SOLD: 0 };
     for (const row of statusRows.results) statusCounts[row.status] = Number(row.count);
-    const tradingProfitOre = Number(metrics?.tradingProfitOre ?? 0);
-    const operatingExpensesOre = Number(operating?.operatingExpensesOre ?? 0);
+    const hydratedActivity = recentActivity.results.map((entry) => entry.kind === "SALE" && operational.has(entry.id)
+      ? { ...entry, amountOre: operational.get(entry.id)!.operationalRevenueOre } : entry);
 
     return noStoreJson({
       metrics: {
         tradingProfitOre,
         operatingExpensesOre,
         netProfitOre: tradingProfitOre - operatingExpensesOre,
-        revenueOre: Number(metrics?.revenueOre ?? 0),
-        inventoryValueOre: Number(inventoryValue?.inventoryValueOre ?? 0),
-        cashInvestedOre: Number(metrics?.cashInvestedOre ?? 0),
+        revenueOre,
+        inventoryValueOre,
+        cashInvestedOre: Number(cashInvested?.cashInvestedOre ?? 0),
       },
-      profitSeries: profitSeries.results,
-      recentActivity: recentActivity.results,
+      profitSeries,
+      recentActivity: hydratedActivity,
       inventorySnapshot: inventorySnapshot.results,
       statusCounts,
     });

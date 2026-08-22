@@ -1,4 +1,4 @@
-import { calculateVatAmounts, defaultTransactionVat } from "./tracker-accounting.ts";
+import { calculateVatAmounts, defaultTransactionVat, priceModeForTransactionContext } from "./tracker-accounting.ts";
 import {
   cleanTrackerText, strictTrackerText, subscriptionId, subscriptionPaymentId, trackerDate, trackerInteger,
   trackerPriceMode, trackerTransactionContext, trackerVatTreatment,
@@ -54,7 +54,8 @@ export function parseTrackerSubscriptionPaymentInput(payload: Record<string, unk
   const explicitContext = payload.transactionContext === undefined || payload.transactionContext === "" ? null : trackerTransactionContext(payload.transactionContext);
   const context = explicitContext ?? "PRIVATE";
   const defaults = purchaseDefaults(context);
-  const priceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
+  const proposedPriceMode = trackerPriceMode(payload.priceMode ?? defaults?.priceMode);
+  const priceMode = priceModeForTransactionContext(context, proposedPriceMode);
   const vatTreatment = trackerVatTreatment(payload.vatTreatment ?? defaults?.vatTreatment);
   const vatRateBps = trackerInteger(payload.vatRateBps ?? defaults?.vatRateBps, { max: 10_000 });
   const inputVatOre = optionalMoney(payload.inputVatOre); const outputVatOre = optionalMoney(payload.outputVatOre); const deductibleVatOre = optionalMoney(payload.deductibleVatOre);

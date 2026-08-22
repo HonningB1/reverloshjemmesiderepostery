@@ -230,6 +230,18 @@ export type SaleLedgerResult = SaleLedgerInput & {
   netProfitOre: number;
 };
 
+export type OperationalSaleLedgerInput = SaleLedgerInput & {
+  grossRevenueOre?: number | null;
+  transactionContext?: TransactionContext | null;
+};
+
+export type OperationalSaleLedgerResult = OperationalSaleLedgerInput & {
+  operationalRevenueOre: number;
+  operationalCostBasisOre: number;
+  operationalTotalCostsOre: number;
+  operationalProfitOre: number;
+};
+
 export function recalculateProductSales(
   product: { quantity: number; purchasePriceOre: number; purchaseShippingOre: number },
   sales: SaleLedgerInput[],
@@ -254,6 +266,61 @@ export function recalculateProductSales(
     soldBefore += sale.quantity;
   }
   return { remainingQuantity: product.quantity - soldBefore, sales: updates };
+}
+
+// The tracker has two deliberately separate views of a sale. Accounting uses
+// VAT-exclusive revenue and deductible input VAT; PRIVATE performance uses the
+// actual VAT-inclusive cash paid and received. B2B and SPECIAL remain on their
+// explicit accounting basis.
+export function recalculateOperationalProductSales(
+  product: { quantity: number; purchasePriceOre: number; purchaseShippingOre: number; operationalPurchasePriceOre?: number | null; operationalPurchaseShippingOre?: number | null },
+  sales: OperationalSaleLedgerInput[],
+) {
+  const sorted = [...sales].sort((a, b) =>
+    a.occurredAt.localeCompare(b.occurredAt) ||
+    (a.createdAt ?? "").localeCompare(b.createdAt ?? "") ||
+    a.id.localeCompare(b.id));
+  const operationalUnitCostOre = safeMoney(product.operationalPurchasePriceOre ?? product.purchasePriceOre, "Operational purchase unit price");
+  const operationalShippingOre = safeMoney(product.operationalPurchaseShippingOre ?? product.purchaseShippingOre, "Operational purchase shipping");
+  let soldBefore = 0;
+  const updates: OperationalSaleLedgerResult[] = [];
+  for (const sale of sorted) {
+    if (!Number.isSafeInteger(sale.quantity) || sale.quantity <= 0) throw new Error("Every sale quantity must be a positive whole number.");
+    if (soldBefore + sale.quantity > product.quantity) throw new Error("This change would sell more units than the product purchase contains.");
+    const privateSale = sale.transactionContext === "PRIVATE";
+    const allocatedShippingOre = Number(
+      (BigInt(operationalShippingOre) * BigInt(soldBefore + sale.quantity)) / BigInt(product.quantity) -
+      (BigInt(operationalShippingOre) * BigInt(soldBefore)) / BigInt(product.quantity),
+    );
+    const operationalRevenueOre = privateSale
+      ? safeMoney(sale.grossRevenueOre ?? sale.revenueOre, "Operational gross sale proceeds")
+      : safeMoney(sale.revenueOre, "Operational sale proceeds");
+    const operationalCostBasisOre = privateSale
+      ? safeMoney(operationalUnitCostOre * sale.quantity + allocatedShippingOre, "Operational sale cost basis")
+      : safeMoney(product.purchasePriceOre * sale.quantity + Number(
+        (BigInt(product.purchaseShippingOre) * BigInt(soldBefore + sale.quantity)) / BigInt(product.quantity) -
+        (BigInt(product.purchaseShippingOre) * BigInt(soldBefore)) / BigInt(product.quantity),
+      ), "Operational sale cost basis");
+    const profit = calculateProfit({ revenueOre: operationalRevenueOre, costBasisOre: operationalCostBasisOre,
+      feeOre: sale.feeOre, promotedFeeOre: sale.promotedFeeOre, shippingOre: sale.shippingOre, otherCostsOre: sale.otherCostsOre });
+    updates.push({ ...sale, operationalRevenueOre, operationalCostBasisOre,
+      operationalTotalCostsOre: profit.tradingCostsOre, operationalProfitOre: profit.tradingProfitOre });
+    soldBefore += sale.quantity;
+  }
+  return { remainingQuantity: product.quantity - soldBefore, sales: updates };
+}
+
+export function remainingOperationalInventoryCost(product: {
+  quantity: number;
+  remainingQuantity: number;
+  purchasePriceOre: number;
+  purchaseShippingOre: number;
+  operationalPurchasePriceOre?: number | null;
+  operationalPurchaseShippingOre?: number | null;
+}) {
+  return remainingInventoryCost({ ...product,
+    purchasePriceOre: product.operationalPurchasePriceOre ?? product.purchasePriceOre,
+    purchaseShippingOre: product.operationalPurchaseShippingOre ?? product.purchaseShippingOre });
 }
 
 export function vatPosition(input: {

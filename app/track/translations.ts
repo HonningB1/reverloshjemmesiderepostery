@@ -14,7 +14,7 @@ export const trackerDa = {
   "total · DKK": "i alt · DKK", "Supplier": "Leverandør", "Platform": "Platform", "eBay, Discord, Direct…": "eBay, Discord, Direkte…",
   "Purchase date": "Købsdato", "Sale date": "Salgsdato", "Date": "Dato", "Notes": "Noter", "Note": "Note",
   "Marketplace fees": "Markedspladsgebyrer", "Promoted listing fee": "Promoted listing-gebyr", "Other costs": "Andre omkostninger",
-  "Revenue": "Omsætning", "Net revenue": "Nettoomsætning", "Gross sale (incl. VAT)": "Salg inkl. moms", "Cost of goods sold": "Vareforbrug / kostpris", "Sale expenses": "Salgsomkostninger", "Sale profit": "Fortjeneste", "Cost basis": "Kostpris", "Total costs": "Samlede omkostninger", "Net profit": "Nettoresultat",
+  "Revenue": "Omsætning", "Operational sales": "Salgsindtægter", "Operational sales detail": "Inkl. moms for PRIVATE", "Net revenue": "Nettoomsætning", "Gross sale (incl. VAT)": "Salg inkl. moms", "Cost of goods sold": "Vareforbrug / kostpris", "Cost of goods sold (incl. VAT)": "Kostpris inkl. moms", "Sale expenses": "Salgsomkostninger", "Sale profit": "Fortjeneste", "Cost basis": "Kostpris", "Total costs": "Samlede omkostninger", "Net profit": "Nettoresultat",
   "Trading profit": "Handelsresultat", "Operating expenses": "Driftsudgifter", "Margin": "Margin", "ROI": "ROI",
   "Cash out": "Udbetaling", "No transactions in this view": "Ingen transaktioner i denne visning",
   "Record a purchase to add stock, or a sale to realise profit.": "Registrér et køb for at tilføje lager eller et salg for at realisere resultat.",

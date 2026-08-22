@@ -12,9 +12,10 @@ const expenseSelect = `id, name, amount_ore AS amountOre, category, occurred_at 
 const subscriptionSelect = `s.id, s.name, s.cost_ore AS costOre, s.category,
   s.billing_period AS billingPeriod, s.next_payment_date AS nextPaymentDate,
   s.auto_renew AS autoRenew, s.status, s.notes, s.created_at AS createdAt, s.updated_at AS updatedAt,
-  COALESCE(SUM(p.amount_ore), 0) AS paidTotalOre, COUNT(p.id) AS paymentCount`;
+  COALESCE(SUM(CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END), 0) AS paidTotalOre, COUNT(p.id) AS paymentCount`;
 const paymentSelect = `p.id, p.subscription_id AS subscriptionId, s.name AS subscriptionName,
-  p.amount_ore AS amountOre, p.occurred_at AS occurredAt, p.notes, p.created_at AS createdAt`;
+  CASE WHEN p.transaction_context = 'PRIVATE' THEN COALESCE(p.entered_amount_ore, p.gross_amount_ore, p.amount_ore) ELSE p.amount_ore END AS amountOre,
+  p.occurred_at AS occurredAt, p.notes, p.created_at AS createdAt`;
 
 type Totals = { ordinaryExpensesOre: number; subscriptionExpensesOre: number };
 
@@ -33,7 +34,7 @@ export async function GET() {
         ORDER BY p.occurred_at DESC, p.created_at DESC`).all<TrackerSubscriptionPayment>(),
       db.prepare(`SELECT
         (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_expenses) AS ordinaryExpensesOre,
-        (SELECT COALESCE(SUM(amount_ore), 0) FROM tracker_subscription_payments) AS subscriptionExpensesOre`).first<Totals>(),
+        (SELECT COALESCE(SUM(CASE WHEN transaction_context = 'PRIVATE' THEN COALESCE(entered_amount_ore, gross_amount_ore, amount_ore) ELSE amount_ore END), 0) FROM tracker_subscription_payments) AS subscriptionExpensesOre`).first<Totals>(),
     ]);
     const ordinaryExpensesOre = Number(totals?.ordinaryExpensesOre ?? 0);
     const subscriptionExpensesOre = Number(totals?.subscriptionExpensesOre ?? 0);
