@@ -46,9 +46,9 @@ function parseOptionalMoney(value: unknown) {
 }
 
 function parseAccounting(payload: Record<string, unknown>, type: TransactionType, quantity: number, unitPriceOre: number, shippingOre: number) {
-  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== "";
+  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== null && payload.transactionContext !== "";
   const explicitContext = contextSupplied ? trackerTransactionContext(payload.transactionContext) : null;
-  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== "";
+  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== null && payload.vatTreatment !== "";
   const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
   if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
   const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);

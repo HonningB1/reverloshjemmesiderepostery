@@ -356,6 +356,41 @@ test("a populated transaction row executes its client render path with formatter
   assert.match(markup, /class="track-transaction-product-meta"><span>eBay<\/span> · <time dateTime="2026-08-23">2026-08-23<\/time><\/span>/);
 });
 
+test("a PRIVATE purchase accepts the dialog's explicit null VAT fields", async () => {
+  const sourceText = await source("lib/tracker-purchases.ts");
+  const compiled = ts.transpileModule(sourceText, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const compiledModule = { exports: {} };
+  const contexts = ["PRIVATE", "B2B", "SPECIAL"];
+  const modes = ["VAT_EXCLUSIVE", "VAT_INCLUSIVE"];
+  const treatments = ["DANISH_PURCHASE_DEDUCTIBLE", "DANISH_SALE_VAT", "EU_B2B_SALE_REVERSE_CHARGE", "EU_PURCHASE_REVERSE_CHARGE", "PRIVATE_PURCHASE_NO_DEDUCTION", "NO_VAT_OUTSIDE_SCOPE", "CUSTOM_MANUAL"];
+  const requireForPurchase = (specifier) => {
+    if (specifier.includes("tracker-accounting")) return { calculatePrivateAmounts, calculateVatAmounts, defaultTransactionVat() { return null; }, priceModeForTransactionContext() { return null; }, transactionContextForVatTreatment() { return "PRIVATE"; } };
+    if (specifier.includes("tracker.ts")) return {
+      strictTrackerText(value, maxLength, required = false) { if (typeof value !== "string") return required ? null : ""; const text = value.trim(); return required && !text || text.length > maxLength ? null : text; },
+      trackerDate(value) { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value ? value : null; },
+      trackerInteger(value, { min = 0, max = 100_000_000_000 } = {}) { const number = typeof value === "number" ? value : Number(value); return Number.isSafeInteger(number) && number >= min && number <= max ? number : null; },
+      trackerPriceMode(value) { return typeof value === "string" && modes.includes(value) ? value : null; },
+      trackerTransactionContext(value) { return typeof value === "string" && contexts.includes(value) ? value : null; },
+      trackerVatTreatment(value) { return typeof value === "string" && treatments.includes(value) ? value : null; },
+      productId() { return "product"; }, transactionId() { return "transaction"; },
+    };
+    return {};
+  };
+  new Function("exports", "require", "module", compiled)(compiledModule.exports, requireForPurchase, compiledModule);
+  const parsed = compiledModule.exports.parseTrackerPurchaseInput({
+    name: "ABC123", quantity: 1, unitPriceOre: 30_000, shippingOre: 2_950, supplier: "", supplierCountry: null,
+    occurredAt: "2026-08-26", notes: "", transactionContext: "PRIVATE", priceMode: null, vatTreatment: null,
+    vatRateBps: null, inputVatOre: null, outputVatOre: null, deductibleVatOre: null,
+  });
+  assert.deepEqual(parsed, {
+    name: "ABC123", quantity: 1, unitPriceOre: 30_000, shippingOre: 2_950, supplier: "", supplierCountry: "",
+    occurredAt: "2026-08-26", notes: "", priceMode: null, vatTreatment: null, vatRateBps: null,
+    inputVatOre: null, outputVatOre: null, deductibleVatOre: null, transactionContext: "PRIVATE",
+  });
+});
+
 test("Overview and Analytics ALL use the same event scope and accounting totals", async () => {
   const [overview, analytics] = await Promise.all([source("app/api/track/overview/route.ts"), source("app/api/track/analytics/route.ts")]);
   for (const table of ["tracker_transactions", "tracker_expenses", "tracker_subscription_payments"]) {

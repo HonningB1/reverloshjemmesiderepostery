@@ -24,9 +24,9 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   const unitPriceOre = trackerInteger(payload.unitPriceOre, { min: 0 }); const shippingOre = trackerInteger(payload.shippingOre ?? 0);
   const supplier = strictTrackerText(payload.supplier ?? "", 120); const supplierCountry = country(payload.supplierCountry);
   const occurredAt = trackerDate(payload.occurredAt); const notes = strictTrackerText(payload.notes ?? "", 2_000);
-  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== "";
+  const contextSupplied = payload.transactionContext !== undefined && payload.transactionContext !== null && payload.transactionContext !== "";
   const explicitContext = contextSupplied ? trackerTransactionContext(payload.transactionContext) : null;
-  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== "";
+  const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== null && payload.vatTreatment !== "";
   const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
   if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
   const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
