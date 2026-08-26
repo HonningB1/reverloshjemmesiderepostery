@@ -19,6 +19,14 @@ function optionalMoney(value: unknown) {
   return trackerInteger(value);
 }
 
+// Intentionally logs only a validation category — never the incoming payload,
+// supplier, note, price or any other purchase data. This keeps production
+// troubleshooting possible without exposing private accounting information.
+function rejectedPurchaseInput(reason: string): null {
+  console.warn("[TRACKER_PURCHASE] rejected", { reason });
+  return null;
+}
+
 export function parseTrackerPurchaseInput(payload: Record<string, unknown>): TrackerPurchaseInput | null {
   const name = strictTrackerText(payload.name, 160, true); const quantity = trackerInteger(payload.quantity, { min: 1, max: 1_000_000 });
   const unitPriceOre = trackerInteger(payload.unitPriceOre, { min: 0 }); const shippingOre = trackerInteger(payload.shippingOre ?? 0);
@@ -28,12 +36,19 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
   const explicitContext = contextSupplied ? trackerTransactionContext(payload.transactionContext) : null;
   const treatmentSupplied = payload.vatTreatment !== undefined && payload.vatTreatment !== null && payload.vatTreatment !== "";
   const requestedTreatment = treatmentSupplied ? trackerVatTreatment(payload.vatTreatment) : null;
-  if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return null;
+  if ((contextSupplied && !explicitContext) || (treatmentSupplied && !requestedTreatment)) return rejectedPurchaseInput("INVALID_CONTEXT_OR_VAT_TREATMENT");
   const transactionContext = explicitContext ?? transactionContextForVatTreatment(requestedTreatment);
   if (transactionContext === "PRIVATE") {
-    if (!name || quantity === null || unitPriceOre === null || shippingOre === null || supplier === null || supplierCountry === null || !occurredAt || notes === null) return null;
+    if (!name) return rejectedPurchaseInput("PRIVATE_NAME");
+    if (quantity === null) return rejectedPurchaseInput("PRIVATE_QUANTITY");
+    if (unitPriceOre === null) return rejectedPurchaseInput("PRIVATE_UNIT_PRICE");
+    if (shippingOre === null) return rejectedPurchaseInput("PRIVATE_SHIPPING");
+    if (supplier === null) return rejectedPurchaseInput("PRIVATE_SUPPLIER");
+    if (supplierCountry === null) return rejectedPurchaseInput("PRIVATE_SUPPLIER_COUNTRY");
+    if (!occurredAt) return rejectedPurchaseInput("PRIVATE_DATE");
+    if (notes === null) return rejectedPurchaseInput("PRIVATE_NOTES");
     try { calculatePrivateAmounts({ type: "PURCHASE", quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre }); }
-    catch { return null; }
+    catch { return rejectedPurchaseInput("PRIVATE_ACCOUNTING_AMOUNTS"); }
     return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes,
       priceMode: null, vatTreatment: null, vatRateBps: null, inputVatOre: null, outputVatOre: null, deductibleVatOre: null, transactionContext };
   }
@@ -47,11 +62,11 @@ export function parseTrackerPurchaseInput(payload: Record<string, unknown>): Tra
       !occurredAt || notes === null || !priceMode || !vatTreatment || vatRateBps === null ||
       (payload.inputVatOre !== null && payload.inputVatOre !== undefined && payload.inputVatOre !== "" && inputVatOre === null) ||
       (payload.outputVatOre !== null && payload.outputVatOre !== undefined && payload.outputVatOre !== "" && outputVatOre === null) ||
-      (payload.deductibleVatOre !== null && payload.deductibleVatOre !== undefined && payload.deductibleVatOre !== "" && deductibleVatOre === null)) return null;
+      (payload.deductibleVatOre !== null && payload.deductibleVatOre !== undefined && payload.deductibleVatOre !== "" && deductibleVatOre === null)) return rejectedPurchaseInput("VAT_PURCHASE_FIELDS");
   try {
     calculateVatAmounts({ type: "PURCHASE", quantity, enteredUnitPriceOre: unitPriceOre, enteredShippingOre: shippingOre,
       priceMode, vatTreatment, vatRateBps, manualInputVatOre: inputVatOre, manualOutputVatOre: outputVatOre, manualDeductibleVatOre: deductibleVatOre });
-  } catch { return null; }
+  } catch { return rejectedPurchaseInput("VAT_PURCHASE_ACCOUNTING_AMOUNTS"); }
   return { name, quantity, unitPriceOre, shippingOre, supplier, supplierCountry, occurredAt, notes, priceMode, vatTreatment, vatRateBps, inputVatOre, outputVatOre, deductibleVatOre, transactionContext };
 }
 
