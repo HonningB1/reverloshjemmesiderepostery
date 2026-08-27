@@ -2,6 +2,7 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { syncEbayFeedback } from "../lib/ebay-feedback";
+import { syncTrackerSubscriptionRenewals } from "../lib/tracker-subscription-renewals";
 
 interface Env {
   ASSETS: Fetcher;
@@ -61,7 +62,14 @@ const worker = {
     return response;
   },
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(syncEbayFeedback(env));
+    ctx.waitUntil(Promise.allSettled([
+      syncEbayFeedback(env),
+      syncTrackerSubscriptionRenewals(env.DB),
+    ]).then((results) => {
+      for (const result of results) {
+        if (result.status === "rejected") console.error("Reverlo scheduled task failed", { message: result.reason instanceof Error ? result.reason.message.slice(0, 300) : "Unknown error" });
+      }
+    }));
   },
 };
 
