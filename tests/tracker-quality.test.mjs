@@ -356,6 +356,39 @@ test("a populated transaction row executes its client render path with formatter
   assert.match(markup, /class="track-transaction-product-meta"><span>eBay<\/span> · <time dateTime="2026-08-23">2026-08-23<\/time><\/span>/);
 });
 
+test("purchase cash out is the whole purchase, never a single unit price", async () => {
+  const sourceText = await source("app/track/TrackerTransactions.tsx");
+  const compiled = ts.transpileModule(sourceText, {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const compiledModule = { exports: {} };
+  const requireForTransactions = (specifier) => {
+    if (specifier === "react") return { useMemo(callback) { return callback(); }, useState(value) { return [value, () => {}]; } };
+    if (specifier === "react/jsx-runtime") return projectRequire(specifier);
+    if (specifier.includes("tracker-context")) return { effectiveTransactionContext: () => "PRIVATE" };
+    return {};
+  };
+  new Function("exports", "require", "module", compiled)(compiledModule.exports, requireForTransactions, compiledModule);
+  assert.equal(compiledModule.exports.purchaseCashOutOre({
+    quantity: 6, unitPriceOre: 124_900, shippingOre: 5_520,
+    enteredUnitPriceOre: 124_900, enteredShippingOre: 5_520,
+    grossAmountOre: 124_900, totalCostsOre: 754_920,
+  }), 754_920);
+  assert.equal(compiledModule.exports.purchaseCashOutOre({
+    quantity: 6, unitPriceOre: 124_900, shippingOre: 5_520,
+    enteredUnitPriceOre: null, enteredShippingOre: null,
+    grossAmountOre: 943_650, totalCostsOre: 754_920,
+  }), 943_650);
+});
+
+test("Tracker create and edit flows use the shared modal shell", async () => {
+  const files = ["app/track/TrackerApp.tsx", "app/track/TrackerTransactions.tsx", "app/track/TrackerExpenses.tsx", "app/track/TrackerVat.tsx"];
+  for (const file of files) assert.match(await source(file), /import \{ TrackerModal \} from "\.\/TrackerModal"/);
+  const modal = await source("app/track/TrackerModal.tsx");
+  assert.match(modal, /aria-modal="true"/);
+  assert.match(modal, /event\.key === "Escape"/);
+});
+
 test("a PRIVATE purchase accepts the dialog's explicit null VAT fields", async () => {
   const sourceText = await source("lib/tracker-purchases.ts");
   const compiled = ts.transpileModule(sourceText, {

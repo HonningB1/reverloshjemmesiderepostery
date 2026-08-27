@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useTrackerI18n } from "./i18n";
+import { TrackerModal } from "./TrackerModal";
 import type { TrackerVatSettlement, VatData } from "./types";
 
 type VatDialog = { kind: "settlement"; settlement?: TrackerVatSettlement } | { kind: "delete"; settlement: TrackerVatSettlement } | null;
@@ -22,16 +23,6 @@ async function responseJson<T>(response: Response) {
 function localDate() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function VatModal({ title, kicker, children, onClose }: { title: string; kicker: string; children: ReactNode; onClose: () => void }) {
-  const { t } = useTrackerI18n();
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", close); document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", close); document.body.style.overflow = ""; };
-  }, [onClose]);
-  return <div className="track-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="track-dialog" role="dialog" aria-modal="true" aria-labelledby="vat-dialog-title"><header><div><p className="track-kicker">{kicker}</p><h2 id="vat-dialog-title">{title}</h2></div><button type="button" className="track-dialog-close" onClick={onClose} aria-label={t("Close dialog")}>×</button></header>{children}</section></div>;
 }
 
 function SettlementForm({ settlement, onClose, onSaved }: { settlement?: TrackerVatSettlement; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -73,7 +64,7 @@ export function TrackerVat({ data, onRefresh }: { data: VatData; onRefresh: () =
     <div className="track-vat-summary"><article><span>01</span><small>{t("Input VAT recorded")}</small><strong>{money(data.totals.inputVatOre)}</strong></article><article><span>02</span><small>{t("Deductible input VAT")}</small><strong>{money(data.totals.deductibleInputVatOre)}</strong></article><article><span>03</span><small>{t("Output VAT due")}</small><strong>{money(data.totals.outputVatOre)}</strong></article><article className={data.totals.openPositionOre < 0 ? "payable" : "receivable"}><span>04</span><small>{positionLabel}</small><strong>{money(Math.abs(data.totals.openPositionOre))}</strong></article></div>
     <div className="track-vat-bridge"><div><span>{t("Deductible input VAT")}</span><strong>＋ {money(data.totals.deductibleInputVatOre)}</strong></div><div><span>{t("Output VAT due")}</span><strong>− {money(data.totals.outputVatOre)}</strong></div><div><span>{t("Received")}</span><strong>− {money(data.totals.receivedSettlementsOre)}</strong></div><div><span>{t("Paid")}</span><strong>＋ {money(data.totals.paidSettlementsOre)}</strong></div></div>
     <section className="track-table-panel track-expense-section"><div className="track-panel-heading"><div><p className="track-kicker">{t("VAT position")}</p><h2>{t("Settlements")}</h2></div><span>{data.settlements.length}</span></div>{data.settlements.length ? <div className="track-table-scroll"><table className="track-data-table track-vat-table"><thead><tr><th>{t("Direction")}</th><th>{t("Date")}</th><th>{t("Reference")}</th><th>{t("Note")}</th><th>{t("Amount")}</th><th><span className="sr-only">{t("Actions")}</span></th></tr></thead><tbody>{data.settlements.map((settlement) => <tr key={settlement.id}><td><span className={`track-vat-direction ${settlement.direction.toLowerCase()}`}>{t(settlement.direction === "PAID" ? "Paid" : "Received")}</span></td><td><strong>{date(settlement.occurredAt)}</strong></td><td><small>{settlement.reference || "—"}</small></td><td><small>{settlement.notes || "—"}</small></td><td><strong>{settlement.direction === "PAID" ? "−" : "＋"}{money(settlement.amountOre)}</strong></td><td><div className="track-row-actions"><button type="button" onClick={() => setDialog({ kind: "settlement", settlement })}>{t("Edit")}</button><button type="button" className="danger" onClick={() => setDialog({ kind: "delete", settlement })}>{t("Delete")}</button></div></td></tr>)}</tbody></table></div> : <div className="track-empty-state"><span>00</span><strong>{t("No VAT settlements")}</strong><p>{t("Record only money actually paid to or received from the tax authority.")}</p></div>}</section>
-    {dialog?.kind === "settlement" ? <VatModal title={dialog.settlement ? t("Edit VAT settlement") : t("Record settlement")} kicker={t("VAT position")} onClose={() => setDialog(null)}><SettlementForm settlement={dialog.settlement} onClose={() => setDialog(null)} onSaved={onRefresh} /></VatModal> : null}
-    {dialog?.kind === "delete" ? <VatModal title={t("Delete VAT settlement?")} kicker={t("Permanent ledger change")} onClose={() => setDialog(null)}><div className="track-delete-copy"><p>{t("VAT settlements reduce the open VAT position and never affect profit.")}</p></div><footer className="track-dialog-actions"><button className="track-button-secondary" type="button" onClick={() => setDialog(null)}>{t("Keep settlement")}</button><button className="track-button-danger" type="button" onClick={() => void remove(dialog.settlement.id)}>{t("Delete settlement")}</button></footer></VatModal> : null}
+    {dialog?.kind === "settlement" ? <TrackerModal title={dialog.settlement ? t("Edit VAT settlement") : t("Record settlement")} kicker={t("VAT position")} closeLabel={t("Close dialog")} onClose={() => setDialog(null)}><SettlementForm settlement={dialog.settlement} onClose={() => setDialog(null)} onSaved={onRefresh} /></TrackerModal> : null}
+    {dialog?.kind === "delete" ? <TrackerModal title={t("Delete VAT settlement?")} kicker={t("Permanent ledger change")} closeLabel={t("Close dialog")} onClose={() => setDialog(null)}><div className="track-delete-copy"><p>{t("VAT settlements reduce the open VAT position and never affect profit.")}</p></div><footer className="track-dialog-actions"><button className="track-button-secondary" type="button" onClick={() => setDialog(null)}>{t("Keep settlement")}</button><button className="track-button-danger" type="button" onClick={() => void remove(dialog.settlement.id)}>{t("Delete settlement")}</button></footer></TrackerModal> : null}
   </>;
 }
