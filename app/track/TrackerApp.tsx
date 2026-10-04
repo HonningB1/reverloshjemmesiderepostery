@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { calculateProfitCalculator, remainingOperationalInventoryCost } from "../../lib/tracker-accounting";
 import { ReverloWordmark } from "../components/ReverloWordmark";
 import { ProfitChart } from "./ProfitChart";
@@ -116,9 +116,38 @@ function Calculator() {
 
 function TrackerRoot() {
   const { t } = useTrackerI18n(); const [section, setSection] = useState<Section>("overview"); const [overview, setOverview] = useState(emptyOverview); const [inventory, setInventory] = useState<TrackerProduct[]>([]); const [transactions, setTransactions] = useState<TrackerTransaction[]>([]); const [expenses, setExpenses] = useState(emptyExpenses); const [vat, setVat] = useState(emptyVat); const [analytics, setAnalytics] = useState(emptyAnalytics); const [period, setPeriod] = useState<AnalyticsPeriod>("30D"); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [error, setError] = useState<string | null>(null); const [dialog, setDialog] = useState<DialogState>(null);
+  // A save immediately revalidates the ledger. Keep an older initial/background
+  // read from arriving afterwards and putting stale values back into the UI.
+  const coreRequestIdRef = useRef(0); const analyticsRequestIdRef = useRef(0);
   const navigate = useCallback((next: Section) => { setSection(next); window.scrollTo({ top: 0, behavior: "smooth" }); }, []);
-  const loadCore = useCallback(async (initial = false) => { if (initial) setLoading(true); else setRefreshing(true); setError(null); try { const [overviewResult, inventoryResult, transactionResult, expenseResult, vatResult] = await Promise.all([fetch("/api/track/overview", { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<OverviewData>(response)), fetch("/api/track/inventory", { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<{ products: TrackerProduct[] }>(response)), fetch("/api/track/transactions", { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<{ transactions: TrackerTransaction[] }>(response)), fetch("/api/track/expenses", { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<ExpensesData>(response)), fetch("/api/track/vat", { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<VatData>(response))]); setOverview(overviewResult); setInventory(inventoryResult.products); setTransactions(transactionResult.transactions); setExpenses(expenseResult); setVat(vatResult); } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "TRACKER_REQUEST_FAILED"); } finally { setLoading(false); setRefreshing(false); } }, []);
-  const loadAnalytics = useCallback(async (selectedPeriod: AnalyticsPeriod) => { try { setAnalytics(await responseJson<AnalyticsData>(await fetch(`/api/track/analytics?period=${selectedPeriod}`, { cache: "no-store", credentials: "same-origin" }))); } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "TRACKER_REQUEST_FAILED"); } }, []);
+  const loadCore = useCallback(async (initial = false) => {
+    const requestId = ++coreRequestIdRef.current; const refreshKey = `${Date.now()}-${requestId}`;
+    if (initial) setLoading(true); else setRefreshing(true); setError(null);
+    try {
+      const [overviewResult, inventoryResult, transactionResult, expenseResult, vatResult] = await Promise.all([
+        fetch(`/api/track/overview?refresh=${refreshKey}`, { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<OverviewData>(response)),
+        fetch(`/api/track/inventory?refresh=${refreshKey}`, { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<{ products: TrackerProduct[] }>(response)),
+        fetch(`/api/track/transactions?refresh=${refreshKey}`, { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<{ transactions: TrackerTransaction[] }>(response)),
+        fetch(`/api/track/expenses?refresh=${refreshKey}`, { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<ExpensesData>(response)),
+        fetch(`/api/track/vat?refresh=${refreshKey}`, { cache: "no-store", credentials: "same-origin" }).then((response) => responseJson<VatData>(response)),
+      ]);
+      if (requestId !== coreRequestIdRef.current) return;
+      setOverview(overviewResult); setInventory(inventoryResult.products); setTransactions(transactionResult.transactions); setExpenses(expenseResult); setVat(vatResult);
+    } catch (loadError) {
+      if (requestId === coreRequestIdRef.current) setError(loadError instanceof Error ? loadError.message : "TRACKER_REQUEST_FAILED");
+    } finally {
+      if (requestId === coreRequestIdRef.current) { setLoading(false); setRefreshing(false); }
+    }
+  }, []);
+  const loadAnalytics = useCallback(async (selectedPeriod: AnalyticsPeriod) => {
+    const requestId = ++analyticsRequestIdRef.current;
+    try {
+      const data = await responseJson<AnalyticsData>(await fetch(`/api/track/analytics?period=${selectedPeriod}&refresh=${Date.now()}-${requestId}`, { cache: "no-store", credentials: "same-origin" }));
+      if (requestId === analyticsRequestIdRef.current) setAnalytics(data);
+    } catch (loadError) {
+      if (requestId === analyticsRequestIdRef.current) setError(loadError instanceof Error ? loadError.message : "TRACKER_REQUEST_FAILED");
+    }
+  }, []);
   useEffect(() => { const timer = window.setTimeout(() => void loadCore(true), 0); return () => window.clearTimeout(timer); }, [loadCore]);
   useEffect(() => { const timer = window.setTimeout(() => void loadAnalytics(period), 0); return () => window.clearTimeout(timer); }, [loadAnalytics, period]);
   const refresh = useCallback(async () => { await Promise.all([loadCore(false), loadAnalytics(period)]); }, [loadCore, loadAnalytics, period]);

@@ -389,6 +389,15 @@ test("Tracker create and edit flows use the shared modal shell", async () => {
   assert.match(modal, /event\.key === "Escape"/);
 });
 
+test("a saved Tracker edit cannot be overwritten by an older refresh response", async () => {
+  const tracker = await source("app/track/TrackerApp.tsx");
+  assert.match(tracker, /const coreRequestIdRef = useRef\(0\)/);
+  assert.match(tracker, /const requestId = \+\+coreRequestIdRef\.current/);
+  assert.match(tracker, /if \(requestId !== coreRequestIdRef\.current\) return/);
+  assert.match(tracker, /\/api\/track\/inventory\?refresh=\$\{refreshKey\}/);
+  assert.match(tracker, /const analyticsRequestIdRef = useRef\(0\)/);
+});
+
 test("a PRIVATE purchase accepts the dialog's explicit null VAT fields", async () => {
   const sourceText = await source("lib/tracker-purchases.ts");
   const compiled = ts.transpileModule(sourceText, {
