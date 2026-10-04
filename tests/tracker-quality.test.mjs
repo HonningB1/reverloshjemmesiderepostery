@@ -396,6 +396,8 @@ test("a saved Tracker edit cannot be overwritten by an older refresh response", 
   assert.match(tracker, /if \(requestId !== coreRequestIdRef\.current\) return/);
   assert.match(tracker, /\/api\/track\/inventory\?refresh=\$\{refreshKey\}/);
   assert.match(tracker, /const analyticsRequestIdRef = useRef\(0\)/);
+  assert.match(tracker, /const result = await responseJson<\{ product: TrackerProduct \| null \}>/);
+  assert.match(tracker, /setInventory\(\(current\) => current\.map\(\(product\) => product\.id === savedProduct\.id \? savedProduct : product\)\)/);
 });
 
 test("a PRIVATE purchase accepts the dialog's explicit null VAT fields", async () => {
