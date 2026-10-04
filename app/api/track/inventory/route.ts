@@ -147,9 +147,11 @@ export async function PATCH(request: Request) {
         ? db.prepare(`UPDATE tracker_transactions SET supplier = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP
           WHERE product_id = ? AND type = 'PURCHASE'`).bind(input.supplier || null, input.purchaseDate, id)
         : db.prepare(`UPDATE tracker_transactions SET quantity = ?, unit_price_ore = ?, shipping_ore = ?, supplier = ?,
-          cost_basis_ore = ?, total_costs_ore = ?, occurred_at = ? WHERE product_id = ? AND type = 'PURCHASE'`)
+          cost_basis_ore = ?, total_costs_ore = ?, entered_unit_price_ore = ?, entered_shipping_ore = ?,
+          gross_amount_ore = ?, occurred_at = ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ? AND type = 'PURCHASE'`)
           .bind(input.quantity, storedPurchasePriceOre, storedPurchaseShippingOre, input.supplier || null,
-            purchaseTotal, purchaseTotal, input.purchaseDate, id),
+            purchaseTotal, purchaseTotal, input.purchasePriceOre, input.purchaseShippingOre,
+            purchaseTotal, input.purchaseDate, id),
     ];
     let cumulativeSold = 0;
     for (const sale of sales.results) {

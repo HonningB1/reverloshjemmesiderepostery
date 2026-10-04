@@ -94,6 +94,16 @@ test("purchase price, quantity and VAT treatment edits flow into inventory and e
   assert.throws(() => recalculateProductSales({ quantity: 1, purchasePriceOre: 100_000, purchaseShippingOre: 0 }, [sale({ quantity: 2 })]));
 });
 
+test("editing a PRIVATE inventory purchase also updates the operational entered amounts", async () => {
+  const route = await source("app/api/track/inventory/route.ts");
+  const privatePurchaseUpdate = route.slice(route.indexOf(": db.prepare(`UPDATE tracker_transactions"), route.indexOf("];\n    let cumulativeSold"));
+  assert.match(privatePurchaseUpdate, /entered_unit_price_ore = \?/);
+  assert.match(privatePurchaseUpdate, /entered_shipping_ore = \?/);
+  assert.match(privatePurchaseUpdate, /gross_amount_ore = \?/);
+  assert.match(privatePurchaseUpdate, /input\.purchasePriceOre, input\.purchaseShippingOre/);
+  assert.match(privatePurchaseUpdate, /updated_at = CURRENT_TIMESTAMP/);
+});
+
 test("fees, promoted fees, shipping and other costs each reduce trading profit once", () => {
   assert.deepEqual(calculateProfit({ revenueOre: 200_000, costBasisOre: 100_000, feeOre: 10_000,
     promotedFeeOre: 5_000, shippingOre: 8_000, otherCostsOre: 2_000 }), {
